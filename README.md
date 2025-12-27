@@ -19,6 +19,17 @@ NOTE TO DEVELOPER:
 This project provides the powerful backend engine for managing blog posts, contributors, and media for a content-driven website. It leverages the Actix Web framework for asynchronous performance and provides a clear separation of concerns between its public API and the secure content management dashboard.
 
 
+## 🌐 Project Repositories
+
+The OxideCMS project is composed of two primary repositories: the front-end client and the back-end server.
+
+| Repository                                                                      | Description                                  |
+| ------------------------------------------------------------------------------- | -------------------------------------------- |
+| 📍 **[oxidecms-web](https://github.com/a-s-l-a-h/oxidecms-web)**  | The Preact front-end client application.     |
+| ⚙️ **[oxidecms-core-backend](https://github.com/a-s-l-a-h/oxidecms-core-backend)** | The core backend server that provides the API. |
+
+
+
 ## ✨ Features
 
 *   **Role-Based Access Control (RBAC):** Separate roles for **Admins** (full control) and **Contributors** (content management).
