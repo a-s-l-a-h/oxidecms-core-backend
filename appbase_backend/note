@@ -1,0 +1,1 @@
+cargo run --bin setup_cli -- db setup                                      

@@ -1,0 +1,469 @@
+{% extends "base.html" %}
+
+{% block head %}
+<title>Advanced DB Manager</title>
+
+<link href="/ssr_static/css/tabulator_modern.min.css" rel="stylesheet">
+<style>
+    :root {
+        --primary-color: #007bff; --danger-color: #dc3545; --warning-color: #ffc107; --secondary-color: #6c757d;
+        --light-gray: #f8f9fa; --medium-gray: #dee2e6; --dark-gray: #343a40;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: var(--light-gray); margin: 0; }
+    .container { max-width: 95%; margin: 20px auto; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h1, h2 { color: var(--dark-gray); border-bottom: 2px solid var(--medium-gray); padding-bottom: 10px; }
+    
+    .controls, .export-controls { display: flex; gap: 15px; align-items: flex-end; margin-bottom: 20px; flex-wrap: wrap; padding: 15px; background: var(--light-gray); border-radius: 5px; }
+    .control-group { display: flex; flex-direction: column; }
+    label { font-size: 0.9em; margin-bottom: 5px; color: #555; font-weight: bold; }
+    select, input { padding: 8px 12px; border-radius: 4px; border: 1px solid #ccc; font-size: 1em; }
+    button { padding: 9px 15px; border-radius: 4px; border: 1px solid transparent; font-size: 1em; cursor: pointer; transition: background-color 0.2s; }
+    button:disabled { background-color: #ccc; cursor: not-allowed; border-color: #ccc; opacity: 0.7; }
+    .btn-primary { background-color: var(--primary-color); color: white; border-color: var(--primary-color); }
+    .btn-primary:hover:not(:disabled) { background-color: #0056b3; }
+    .btn-danger { background-color: var(--danger-color); color: white; border-color: var(--danger-color); }
+    .btn-danger:hover:not(:disabled) { background-color: #c82333; }
+    .btn-warning { background-color: var(--warning-color); color: var(--dark-gray); border-color: var(--warning-color); }
+    .btn-warning:hover:not(:disabled) { background-color: #e0a800; }
+    .btn-secondary { background-color: var(--secondary-color); color: white; border-color: var(--secondary-color); }
+    .btn-secondary:hover:not(:disabled) { background-color: #5a6268; }
+
+    .read-only-toggle { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+    
+    #db-table { border: 1px solid var(--medium-gray); border-radius: 5px; margin-top: 10px; }
+    .delete-btn { background-color: #e74c3c; color: white; border: none; padding: 4px 8px; font-size: 0.8em; margin: 0 2px; border-radius: 3px; }
+    .clickable-cell { cursor: pointer; }
+    .clickable-cell:hover { background-color: #e8f4ff; }
+
+    /* Modal Styles */
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; display: none; justify-content: center; align-items: center; }
+    .modal-content { position: relative; background: white; padding: 25px; border-radius: 8px; width: 90%; max-width: 800px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+    .modal-close { position: absolute; top: 10px; right: 15px; font-size: 28px; font-weight: bold; cursor: pointer; color: #555; }
+    .modal-close:hover { color: #000; }
+    .modal-content h2 { margin-top: 0; }
+    .modal-content textarea, .modal-content input[type="password"] { width: 100%; font-size: 14px; margin-top: 10px; border: 1px solid #ccc; padding: 10px; box-sizing: border-box; }
+    .modal-content textarea { min-height: 250px; font-family: monospace; }
+    .modal-content textarea:read-only { background: #f1f1f1; color: #555; }
+    .modal-actions { margin-top: 20px; text-align: right; display: flex; gap: 10px; justify-content: flex-end;}
+    .dependency-list { margin-top: 15px; padding-left: 0; list-style: none; max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; }
+    .dependency-list li { margin-bottom: 10px; }
+    .dependency-list code { background: #eee; padding: 2px 5px; border-radius: 3px; }
+</style>
+{% endblock head %}
+
+{% block content %}
+<a href="/management/{{ admin_url_prefix }}/dashboard" style="display: inline-block; margin-bottom: 20px;">&larr; Back to Dashboard</a>
+<h1>Advanced Database Manager</h1>
+<p style="color: #c0392b; font-weight: bold;">Warning: Actions performed here directly modify the database and can lead to data loss. Proceed with extreme caution.</p>
+
+<div class="controls">
+    <div class="control-group">
+        <label for="db-select">Database:</label>
+        <select id="db-select">
+            <option value="">-- Loading... --</option>
+        </select>
+    </div>
+    <div class="control-group">
+        <label for="table-select">Table:</label>
+        <select id="table-select" disabled>
+            <option value="">-- Choose Database First --</option>
+        </select>
+    </div>
+    <div class="control-group">
+        <label for="search-id">Search by ID:</label>
+        <input type="search" id="search-id" placeholder="Enter exact ID to find">
+    </div>
+    <button id="search-btn" class="btn-primary">Search</button>
+    <div class="read-only-toggle">
+        <label for="read-only-mode">Read-Only Mode:</label>
+        <input type="checkbox" id="read-only-mode" checked>
+    </div>
+</div>
+
+<div class="export-controls" id="action-bar">
+    <button id="clean-table-btn" class="btn-danger action-btn" disabled>Clean Table</button>
+    <button id="export-csv-btn" class="btn-warning" disabled>Export Visible as CSV</button>
+</div>
+
+<div id="db-table"></div>
+
+<input type="hidden" id="csrf-token" value="{{ csrf_token }}">
+
+<div id="edit-modal" class="modal-overlay">
+    <div class="modal-content">
+        <span class="modal-close">&times;</span>
+        <h2 id="modal-title-edit">View Cell Content</h2>
+        <textarea id="modal-textarea"></textarea>
+        <div class="modal-actions">
+            <button id="modal-save" class="btn-primary">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<div id="confirm-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 600px;">
+        <span class="modal-close">&times;</span>
+        <h2 id="modal-title-confirm">Confirmation</h2>
+        <div id="modal-body-confirm"></div>
+        <div class="modal-actions" id="modal-actions-confirm"></div>
+    </div>
+</div>
+
+{% endblock content %}
+
+{% block scripts %}
+<script type="text/javascript" src="/ssr_static/js/tabulator.min.js"></script>
+<!-- <script type="text/javascript" src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/modules/download.min.js"></script> -->
+
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    // --- GLOBAL STATE & CONFIG ---
+    let dbStructure = null;
+    let table = null;
+    let currentEditCell = null;
+    const csrfToken = document.getElementById('csrf-token').value;
+    const adminPrefix = "{{ admin_url_prefix }}";
+
+    // --- ELEMENT SELECTORS ---
+    const dbSelect = document.getElementById('db-select');
+    const tableSelect = document.getElementById('table-select');
+    const searchInput = document.getElementById('search-id');
+    const searchBtn = document.getElementById('search-btn');
+    const cleanBtn = document.getElementById('clean-table-btn');
+    const exportBtn = document.getElementById('export-csv-btn');
+    const readOnlyToggle = document.getElementById('read-only-mode');
+    const editModal = document.getElementById('edit-modal');
+    const confirmModal = document.getElementById('confirm-modal');
+
+    // --- INITIALIZATION ---
+    try {
+        const response = await fetch(`/management/${adminPrefix}/advanced-db-manager/structure`);
+        if (!response.ok) throw new Error('Failed to load database structure from server.');
+        dbStructure = await response.json();
+        populateDbSelect();
+    } catch (error) {
+        alert(`Fatal Error: ${error.message}`);
+        return;
+    }
+
+    // --- EVENT LISTENERS ---
+    dbSelect.addEventListener('change', onDbSelectChange);
+    tableSelect.addEventListener('change', onTableSelectChange);
+    searchBtn.addEventListener('click', initializeOrUpdateTable);
+    cleanBtn.addEventListener('click', handleCleanTable);
+    exportBtn.addEventListener('click', () => table && table.download("csv", `${tableSelect.value}-export.csv`, {bom:true}));
+    readOnlyToggle.addEventListener('change', toggleActionButtons);
+
+    editModal.querySelector('.modal-close').addEventListener('click', () => editModal.style.display = 'none');
+    editModal.querySelector('#modal-save').addEventListener('click', handleSaveChanges);
+    confirmModal.querySelector('.modal-close').addEventListener('click', () => confirmModal.style.display = 'none');
+    
+    // --- UI POPULATION & STATE ---
+    function populateDbSelect() {
+        dbSelect.innerHTML = '<option value="">-- Choose Database --</option>';
+        dbStructure.databases.forEach(db => {
+            dbSelect.appendChild(new Option(db.name, db.id));
+        });
+    }
+
+    function onDbSelectChange() {
+        tableSelect.innerHTML = '<option value="">-- Choose Table --</option>';
+        tableSelect.disabled = true;
+        if (table) table.destroy();
+        table = null;
+
+        const dbInfo = dbStructure.databases.find(db => db.id === dbSelect.value);
+        if (dbInfo) {
+            dbInfo.tables.forEach(tableInfo => {
+                tableSelect.appendChild(new Option(tableInfo.name, tableInfo.name));
+            });
+            tableSelect.disabled = false;
+        }
+        updateButtonStates();
+    }
+    
+    function onTableSelectChange() {
+        if (tableSelect.value) initializeOrUpdateTable();
+        updateButtonStates();
+    }
+
+    function updateButtonStates() {
+        const tableInfo = findTableInfo(tableSelect.value);
+        const isReadOnly = readOnlyToggle.checked;
+        cleanBtn.disabled = isReadOnly || !tableInfo?.cleanable;
+        exportBtn.disabled = !tableInfo;
+    }
+
+    function toggleActionButtons() {
+        updateButtonStates();
+        if (table) table.redraw(true);
+    }
+    
+    // --- DATA HELPERS ---
+    function findTableInfo(tableName) {
+        return dbStructure.databases
+            .flatMap(db => db.tables)
+            .find(t => t.name === tableName);
+    }
+
+    // --- CORE ACTIONS (DELETE, CLEAN) ---
+    async function handleCleanTable() {
+        const tableName = tableSelect.value;
+        const tableInfo = findTableInfo(tableName);
+        if (!tableInfo?.cleanable) return;
+        
+        const dependency = tableInfo.dependencies.length > 0 ? findTableInfo(tableInfo.dependencies[0]) : null;
+        
+        const cleanAction = (cleanDependents) => {
+            showConfirmModal({
+                title: 'Confirm Clean Operation',
+                bodyHtml: `<p>To permanently delete all data, please enter your admin password.</p>
+                           <input type="password" id="modal-input-password" placeholder="Required" class="modal-input">`,
+                buttons: [
+                    { text: 'Confirm Clean', class: 'btn-danger', callback: async () => {
+                        const password = document.getElementById('modal-input-password').value;
+                        if (!password) { alert('Password is required.'); return; }
+                        try {
+                            await apiRequest('clean-table', {
+                                db_selection: dbSelect.value === 'postsdb' ? 'PostsDb' : 'ContributorDb',
+                                table_name: tableName,
+                                admin_password: password,
+                                clean_dependents: cleanDependents
+                            });
+                            alert(`Table "${tableName}" cleaned successfully.`);
+                            if(table) table.replaceData();
+                            return true; // close modal
+                        } catch (error) { alert(`Error: ${error.message}`); }
+                    }},
+                    { text: 'Cancel', class: 'btn-secondary', isClose: true }
+                ]
+            });
+        };
+
+        if (dependency?.cleanable) {
+            showConfirmModal({
+                title: 'Clean Table with Dependencies',
+                bodyHtml: `<p>This will permanently delete all data from <b>"${tableName}"</b>.</p>
+                           <p>Do you also want to clean the related table <b>"${dependency.name}"</b>?</p>`,
+                buttons: [
+                    { text: 'Clean Both', class: 'btn-danger', callback: () => cleanAction(true) },
+                    { text: `Clean "${tableName}" Only`, class: 'btn-warning', callback: () => cleanAction(false) },
+                    { text: 'Cancel', class: 'btn-secondary', isClose: true }
+                ]
+            });
+        } else {
+             showConfirmModal({
+                title: 'Confirm Clean Table',
+                bodyHtml: `<p>This will permanently delete ALL data from <b>"${tableName}"</b>.</p>`,
+                buttons: [
+                    { text: 'Proceed', class: 'btn-danger', callback: () => cleanAction(false) },
+                    { text: 'Cancel', class: 'btn-secondary', isClose: true }
+                ]
+            });
+        }
+    }
+
+    async function handleDelete(rowId, dbId, tableName) {
+        if (readOnlyToggle.checked) return;
+
+        try {
+            const deps = await apiGetRequest('dependencies', { db: dbId, table: tableName, id: rowId });
+            let bodyHtml = `<p>Are you sure you want to delete row ID: <b>${rowId}</b> from "<b>${tableName}</b>"?</p>`;
+
+            if (deps.length > 0) {
+                bodyHtml = `<p>This row is linked to the following item(s). Select which ones you also want to delete:</p>`;
+                bodyHtml += '<ul class="dependency-list">';
+                deps.forEach(dep => {
+                    bodyHtml += `<li>
+                        <label>
+                            <input type="checkbox" class="dependent-checkbox" data-table-name="${dep.table_name}" data-row-id="${dep.row_id}">
+                            Delete from <code>${dep.table_name}</code> (ID: ${dep.row_id})
+                            <br><small style="color:#666;">Preview: ${escapeHtml(dep.preview)}</small>
+                        </label>
+                    </li>`;
+                });
+                bodyHtml += '</ul>';
+            }
+
+            showConfirmModal({
+                title: 'Confirm Deletion',
+                bodyHtml: bodyHtml,
+                buttons: [{
+                    text: 'Delete Selected',
+                    class: 'btn-danger',
+                    callback: async () => {
+                        const dependentsToDelete = Array.from(document.querySelectorAll('.dependent-checkbox:checked'))
+                            .map(cb => ({
+                                table_name: cb.dataset.tableName,
+                                row_id: cb.dataset.rowId,
+                            }));
+                        
+                        try {
+                            await apiRequest('delete-row', {
+                                db_selection: dbId === 'postsdb' ? 'PostsDb' : 'ContributorDb',
+                                table_name: tableName,
+                                row_id: rowId,
+                                dependents: dependentsToDelete,
+                            });
+                            alert('Row(s) deleted successfully.');
+                            if (table) table.replaceData();
+                            return true; // close modal
+                        } catch (error) {
+                            alert(`Error deleting row(s): ${error.message}`);
+                        }
+                    }
+                }, {
+                    text: 'Cancel',
+                    class: 'btn-secondary',
+                    isClose: true
+                }]
+            });
+        } catch (error) {
+            alert(`Could not check for dependencies: ${error.message}`);
+        }
+    }
+
+    // --- MODAL & API HELPERS ---
+    function showConfirmModal({ title, bodyHtml, buttons }) {
+        confirmModal.querySelector('#modal-title-confirm').textContent = title;
+        confirmModal.querySelector('#modal-body-confirm').innerHTML = bodyHtml;
+        const actionsContainer = confirmModal.querySelector('#modal-actions-confirm');
+        actionsContainer.innerHTML = '';
+
+        buttons.forEach(btnConfig => {
+            const button = document.createElement('button');
+            button.textContent = btnConfig.text;
+            button.className = btnConfig.class;
+            button.onclick = async () => {
+                let shouldClose = btnConfig.isClose;
+                if (btnConfig.callback) {
+                    shouldClose = await btnConfig.callback() || shouldClose;
+                }
+                if (shouldClose) {
+                    confirmModal.style.display = 'none';
+                }
+            };
+            actionsContainer.appendChild(button);
+        });
+
+        confirmModal.style.display = 'flex';
+    }
+
+    async function apiRequest(endpoint, body) {
+        const response = await fetch(`/management/${adminPrefix}/advanced-db-manager/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+            body: JSON.stringify(body)
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || result || 'An unknown API error occurred.');
+        return result;
+    }
+
+    async function apiGetRequest(endpoint, params) {
+        const url = new URL(`/management/${adminPrefix}/advanced-db-manager/${endpoint}`, window.location.origin);
+        url.search = new URLSearchParams(params).toString();
+        const response = await fetch(url);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || result || 'An unknown API error occurred.');
+        return result;
+    }
+
+    function escapeHtml(unsafe) {
+        return unsafe
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
+    }
+
+    // --- TABULATOR TABLE ---
+    function initializeOrUpdateTable() {
+        const db = dbSelect.value, tableName = tableSelect.value, searchId = searchInput.value.trim();
+        if (!db || !tableName) return;
+        const isMetadata = tableName.includes('metadata');
+        
+        table = new Tabulator("#db-table", {
+            height: "600px",
+            layout: isMetadata ? "fitColumns" : "fitDataStretch",
+            placeholder: "Loading Data...",
+            ajaxURL: `/management/${adminPrefix}/advanced-db-manager/data`,
+            ajaxParams: { db, table: tableName, search_id: searchId },
+            pagination: true,
+            paginationMode: "remote",
+            paginationSize: 20,
+            paginationSizeSelector: [10, 20, 50, 100],
+            ajaxResponse: (url, params, response) => response,
+            autoColumns: !isMetadata,
+            autoColumnsDefinitions: (defs) => {
+                 defs.forEach(def => {
+                    def.cssClass = 'clickable-cell';
+                    def.cellClick = handleCellClick;
+                });
+                defs.unshift({
+                    title: "Actions", headerSort: false, width: 80, frozen: true,
+                    formatter: (c) => readOnlyToggle.checked ? "" : `<button class="delete-btn">Delete</button>`,
+                    cellClick: (e, cell) => handleDelete(cell.getRow().getData().id || cell.getRow().getData().post_id, db, tableName),
+                });
+                defs.unshift({formatter:"rownum", hozAlign:"center", width:40});
+                return defs;
+            },
+            columns: isMetadata ? [
+                {formatter:"rownum", hozAlign:"center", width:40},
+                {
+                    title: "Actions", headerSort: false, width: 80, frozen: true,
+                    formatter: (c) => readOnlyToggle.checked ? "" : `<button class="delete-btn">Delete</button>`,
+                    cellClick: (e, cell) => handleDelete(cell.getRow().getData().id, db, tableName),
+                },
+                {title: "ID", field: "id", width: 300, frozen:true, cellClick: handleCellClick, cssClass: 'clickable-cell'},
+                {title: "Title", field: "title", minWidth: 200, cellClick: handleCellClick, cssClass: 'clickable-cell'},
+                {title: "Summary", field: "summary", minWidth: 300, cellClick: handleCellClick, cssClass: 'clickable-cell'},
+                {title: "Tags", field: "tags", width: 200, cellClick: handleCellClick, cssClass: 'clickable-cell'},
+                {title: "Cover Image", field: "cover_image", minWidth: 150, cellClick: handleCellClick, cssClass: 'clickable-cell'},
+                {title: "Created At", field: "created_at", width: 200, cellClick: handleCellClick, cssClass: 'clickable-cell'}
+            ] : [],
+        });
+    }
+
+    function handleCellClick(e, cell) {
+        const tableName = tableSelect.value;
+        const columnName = cell.getField();
+        const editableColumns = dbStructure.editableCells[tableName] || [];
+        const isEditable = !readOnlyToggle.checked && editableColumns.includes(columnName);
+
+        currentEditCell = cell;
+        
+        editModal.querySelector('#modal-title-edit').innerText = isEditable ? `Edit: ${columnName}` : `View: ${columnName}`;
+        const textarea = editModal.querySelector('#modal-textarea');
+        textarea.value = cell.getValue();
+        textarea.readOnly = !isEditable;
+        editModal.querySelector('#modal-save').style.display = isEditable ? 'inline-block' : 'none';
+
+        editModal.style.display = 'flex';
+        textarea.focus();
+    }
+
+    async function handleSaveChanges() {
+        if (!currentEditCell) return;
+        const newValue = document.getElementById('modal-textarea').value;
+        const cell = currentEditCell;
+        const rowId = cell.getRow().getData().id || cell.getRow().getData().post_id;
+        
+        try {
+            await apiRequest('update-cell', {
+                db_selection: dbSelect.value === 'postsdb' ? 'PostsDb' : 'ContributorDb',
+                table_name: tableSelect.value,
+                row_id: rowId,
+                column_name: cell.getField(),
+                value: newValue
+            });
+            cell.setValue(newValue);
+            editModal.style.display = 'none';
+        } catch (error) {
+            alert(`Error updating cell: ${error.message}`);
+        }
+    }
+});
+</script>
+{% endblock scripts %}

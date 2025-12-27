@@ -1,0 +1,502 @@
+{% extends "base.html" %}
+
+{% block head %}
+<link rel="stylesheet" href="/ssr_static/css/toastui-editor.min.css">
+<style>
+    .post-item {
+        background-color: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .post-item h3 { margin-top: 0; }
+    .post-item-meta { color: #718096; font-size: 0.9rem; margin-top: 0.5rem; }
+    .post-item-actions { display: flex; gap: 1rem; }
+    .modal-backdrop {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(0,0,0,0.6); display: flex;
+        justify-content: center; align-items: center; z-index: 1000;
+    }
+    .modal-content {
+        background: white; padding: 2rem; border-radius: 8px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        width: 90%;
+    }
+    .review-modal-content {
+        max-width: 1000px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+    }
+    .confirm-modal-content {
+        max-width: 500px;
+    }
+    .modal-header {
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+    }
+    .modal-body {
+        overflow-y: auto;
+        min-height: 50vh;
+    }
+    .modal-footer {
+        margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 1rem;
+    }
+    .pagination-controls {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 1rem;
+        margin-top: 2rem;
+    }
+
+    /* --- TABS CSS --- */
+    .view-tabs {
+        display: flex;
+        border-bottom: 2px solid #e2e8f0;
+        margin-bottom: 1rem;
+    }
+    .tab-btn {
+        padding: 0.75rem 1.25rem;
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-size: 1rem;
+        color: #718096;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+    }
+    .tab-btn.active {
+        color: #2d3748;
+        font-weight: 600;
+        border-bottom-color: #4299e1;
+    }
+    .tab-content {
+        display: none;
+    }
+    .tab-content.active {
+        display: block;
+    }
+    .source-code-view {
+        white-space: pre-wrap;
+        word-break: break-all;
+        background-color: #f7fafc;
+        padding: 1rem;
+        border-radius: 5px;
+        border: 1px solid #e2e8f0;
+        font-family: monospace;
+        color: #2d3748;
+        max-height: 55vh;
+        overflow-y: auto;
+    }
+    
+    /* --- NEW CSS FOR METADATA --- */
+    #review-modal-metadata {
+        background-color: #edf2f7;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem 1.5rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+    }
+    #review-modal-metadata p {
+        margin: 0.5rem 0;
+    }
+    #review-modal-metadata code {
+        background-color: #e2e8f0;
+        padding: 0.2em 0.4em;
+        border-radius: 3px;
+    }
+</style>
+{% endblock head %}
+
+{% block content %}
+<header>
+    <h1>Approve Posts</h1>
+    <div class="user-info">
+        <span>Welcome, <strong>{{ user.username }}</strong></span>
+        <a href="/management/{{ contributor_path_prefix }}/dashboard" class="button-link button-secondary" style="margin-left: 1rem;">Dashboard</a>
+        <form action="/management/{{ contributor_path_prefix }}/logout" method="post" style="display:inline; margin-left: 1rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit">Logout</button>
+        </form>
+    </div>
+</header>
+<main>
+    <div id="notification-container"></div>
+    <section class="card">
+        <h2>Pending Submissions</h2>
+
+        <div class="form-group" style="display: flex; gap: 1rem; margin-bottom: 2rem;">
+            <input type="search" id="pending-id-search-input" placeholder="Find by Post ID..." style="flex-grow: 1;">
+            <button type="button" id="pending-id-search-btn" class="button-secondary">Find by ID</button>
+        </div>
+
+        <div id="pending-posts-container">
+            <div class="placeholder">Loading pending posts...</div>
+        </div>
+        <div id="pagination-controls" class="pagination-controls" style="display: none;">
+            <button id="prev-page-btn" class="button-secondary">Previous</button>
+            <span id="page-info">Page 1</span>
+            <button id="next-page-btn" class="button-secondary">Next</button>
+        </div>
+    </section>
+
+    <div id="review-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-content review-modal-content">
+            <div class="modal-header">
+                <h2 id="review-modal-title">Review Post</h2>
+            </div>
+            <div class="modal-body" id="review-modal-body">
+                
+                <!-- --- NEW METADATA SECTION --- -->
+                <div id="review-modal-metadata">
+                    <p>Loading metadata...</p>
+                </div>
+
+                <div class="view-tabs">
+                    <button id="tab-btn-rendered" class="tab-btn">Rendered View</button>
+                    <button id="tab-btn-source" class="tab-btn active">Source Code (Safe)</button>
+                </div>
+                <div id="tab-content-rendered" class="tab-content" style="max-height: 55vh; overflow-y: auto;">
+                    <!-- The TUI Viewer will be injected here -->
+                </div>
+                <div id="tab-content-source" class="tab-content active">
+                    <pre class="source-code-view"><code><!-- The safe source code will be injected here --></code></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="review-modal-cancel" class="button-secondary">Cancel</button>
+                <button type="button" id="review-modal-approve" class="button-danger">Approve</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-content confirm-modal-content">
+            <h2 id="confirm-title">Confirm Action</h2>
+            <p id="confirm-message">To proceed, please type the confirmation phrase below.</p>
+            <div class="form-group">
+                <label>Confirmation Phrase: <code id="confirm-phrase"></code></label>
+                <input type="text" id="confirm-input" autocomplete="off">
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="confirm-cancel-btn" class="button-secondary">Cancel</button>
+                <button type="button" id="confirm-action-btn" class="button-danger" disabled>Confirm</button>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock content %}
+
+{% block scripts %}
+<script src="/ssr_static/js/toastui-editor-all.min.js"></script>
+<script>
+    const contributorPrefix = "/management/{{ contributor_path_prefix }}";
+    const csrfToken = "{{ csrf_token }}";
+    let currentPage = 1;
+    let totalPosts = 0;
+    const POSTS_PER_PAGE = 10;
+    
+    let currentAction = null; 
+    let currentPostId = null;
+    let viewer = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadPendingPosts(currentPage);
+        addEventListeners();
+    });
+
+    function addEventListeners() {
+        // ... (all other event listeners remain the same) ...
+        document.getElementById('prev-page-btn').addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                loadPendingPosts(currentPage);
+            }
+        });
+
+        document.getElementById('next-page-btn').addEventListener('click', () => {
+            currentPage++;
+            loadPendingPosts(currentPage);
+        });
+        
+        document.getElementById('pending-id-search-btn').addEventListener('click', () => {
+            const postId = document.getElementById('pending-id-search-input').value.trim();
+            if (postId) {
+                openReviewModal(postId);
+            } else {
+                showNotification('Please enter a Post ID to find.', 'error');
+            }
+        });
+
+        document.getElementById('pending-posts-container').addEventListener('click', handlePostItemClick);
+        document.getElementById('review-modal-cancel').addEventListener('click', closeReviewModal);
+        document.getElementById('review-modal-approve').addEventListener('click', () => {
+            openConfirmModal('approve', currentPostId, 'Are you sure you want to approve and publish this post?', 'yes');
+        });
+        document.getElementById('confirm-cancel-btn').addEventListener('click', closeConfirmModal);
+        document.getElementById('confirm-action-btn').addEventListener('click', executeConfirmedAction);
+        document.getElementById('confirm-input').addEventListener('input', (e) => {
+            const phrase = document.getElementById('confirm-phrase').textContent;
+            document.getElementById('confirm-action-btn').disabled = e.target.value !== phrase;
+        });
+        
+        document.getElementById('tab-btn-rendered').addEventListener('click', () => switchTab('rendered'));
+        document.getElementById('tab-btn-source').addEventListener('click', () => switchTab('source'));
+    }
+
+    // --- MODIFIED createPostItemHTML TO INCLUDE TAGS ---
+    function createPostItemHTML(item) {
+        const post = item.post_summary;
+        const createdDate = new Date(post.metadata.created_at).toLocaleDateString();
+        const tagsHTML = post.metadata.tags.map(tag => `<code>${escapeHtml(tag)}</code>`).join(' ');
+
+        return `
+            <div class="post-item" data-post-id="${post.id}">
+                <div>
+                    <h3>${escapeHtml(post.metadata.title)}</h3>
+                    <div class="post-item-meta">
+                        <strong>ID:</strong> <code>${post.id}</code><br>
+                        By <strong>${escapeHtml(item.author_name)}</strong> on ${createdDate}<br>
+                        <strong>Tags:</strong> ${tagsHTML || 'None'}
+                    </div>
+                </div>
+                <div class="post-item-actions">
+                    <button type="button" class="button-secondary review-btn">Review</button>
+                    <button type="button" class="button-danger delete-btn">Delete</button>
+                </div>
+            </div>`;
+    }
+
+    // --- MODIFIED openReviewModal TO SHOW ALL METADATA ---
+    async function openReviewModal(postId) {
+        const modal = document.getElementById('review-modal');
+        const titleEl = document.getElementById('review-modal-title');
+        const metadataEl = document.getElementById('review-modal-metadata'); // New element
+        const renderedContentEl = document.getElementById('tab-content-rendered');
+        const sourceContentCodeEl = document.querySelector('#tab-content-source code');
+        
+        currentPostId = postId;
+        titleEl.textContent = 'Loading...';
+        metadataEl.innerHTML = '<p>Loading metadata...</p>';
+        renderedContentEl.innerHTML = '<div class="placeholder">Loading content...</div>';
+        sourceContentCodeEl.textContent = 'Loading content...';
+        modal.style.display = 'flex';
+        switchTab('source');
+
+        try {
+            const response = await fetch(`${contributorPrefix}/api/pending/${postId}`);
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Could not fetch post details.');
+
+            const post = result.data;
+            titleEl.textContent = escapeHtml(post.metadata.title);
+
+            // --- NEW: POPULATE THE METADATA SECTION ---
+            const coverImageHTML = post.metadata.cover_image 
+                ? `<a href="${escapeHtml(post.metadata.cover_image)}" target="_blank" rel="noopener noreferrer">${escapeHtml(post.metadata.cover_image)}</a>` 
+                : 'None';
+            
+            let ctaText = 'Default (None)';
+            if (post.metadata.has_call_to_action === true) ctaText = 'Yes';
+            if (post.metadata.has_call_to_action === false) ctaText = 'No';
+
+            const metadataHtml = `
+                <p><strong>Summary:</strong> ${escapeHtml(post.metadata.summary)}</p>
+                <p><strong>Tags:</strong> ${post.metadata.tags.map(t => `<code>${escapeHtml(t)}</code>`).join(' ') || 'None'}</p>
+                <p><strong>Cover Image URL:</strong> ${coverImageHTML}</p>
+                <p><strong>Search Keywords:</strong> ${(post.metadata.search_keywords || []).map(k => `<code>${escapeHtml(k)}</code>`).join(' ') || 'None'}</p>
+                <p><strong>Include Call to Action:</strong> ${ctaText}</p>
+            `;
+            metadataEl.innerHTML = metadataHtml;
+
+            // Populate source code view
+            sourceContentCodeEl.textContent = post.content;
+
+            // Populate rendered view
+            renderedContentEl.innerHTML = ''; 
+            if (viewer) viewer.destroy();
+            viewer = toastui.Editor.factory({
+                el: renderedContentEl,
+                viewer: true,
+                initialValue: post.content,
+                usageStatistics: false
+            });
+
+        } catch (error) {
+            showNotification(error.message, 'error');
+            closeReviewModal();
+        }
+    }
+
+    function escapeHtml(unsafe) {
+        if (!unsafe) return '';
+        return unsafe
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
+    }
+
+    // --- ALL OTHER JS FUNCTIONS (loadPendingPosts, switchTab, modals, etc.) REMAIN UNCHANGED ---
+    
+    async function loadPendingPosts(page) {
+        const container = document.getElementById('pending-posts-container');
+        const paginationControls = document.getElementById('pagination-controls');
+        container.innerHTML = `<div class="placeholder">Loading...</div>`;
+        const url = `${contributorPrefix}/api/pending?page=${page}&limit=${POSTS_PER_PAGE}`;
+        
+        try {
+            const response = await fetch(url);
+            const result = await response.json();
+
+            if (!response.ok) throw new Error(result.error || 'Failed to fetch data');
+
+            container.innerHTML = '';
+            if (result.success && result.data.length > 0) {
+                result.data.forEach(item => {
+                    container.insertAdjacentHTML('beforeend', createPostItemHTML(item));
+                });
+                paginationControls.style.display = 'flex';
+                updatePaginationControls(page, result.data.length);
+            } else {
+                container.innerHTML = `<div class="placeholder">No pending submissions found.</div>`;
+                paginationControls.style.display = 'none';
+            }
+        } catch (error) {
+            container.innerHTML = `<div class="placeholder" style="color: #e53e3e;">Error: ${error.message}</div>`;
+        }
+    }
+    
+    function updatePaginationControls(page, loadedItemCount) {
+        document.getElementById('page-info').textContent = `Page ${page}`;
+        document.getElementById('prev-page-btn').disabled = page === 1;
+        document.getElementById('next-page-btn').disabled = loadedItemCount < POSTS_PER_PAGE;
+    }
+
+    function handlePostItemClick(event) {
+        const target = event.target;
+        const postItem = target.closest('.post-item');
+        if (!postItem) return;
+
+        const postId = postItem.dataset.postId;
+        currentPostId = postId;
+
+        if (target.classList.contains('review-btn')) {
+            openReviewModal(postId);
+        } else if (target.classList.contains('delete-btn')) {
+            openConfirmModal('delete', postId, 'Are you sure you want to permanently delete this pending submission? This cannot be undone.', 'delete now');
+        }
+    }
+    
+    function closeReviewModal() {
+        document.getElementById('review-modal').style.display = 'none';
+        if (viewer) {
+            viewer.destroy();
+            viewer = null;
+        }
+        currentPostId = null;
+    }
+
+    function switchTab(tabName) {
+        const renderedTab = document.getElementById('tab-btn-rendered');
+        const sourceTab = document.getElementById('tab-btn-source');
+        const renderedContent = document.getElementById('tab-content-rendered');
+        const sourceContent = document.getElementById('tab-content-source');
+
+        if (tabName === 'rendered') {
+            renderedTab.classList.add('active');
+            sourceTab.classList.remove('active');
+            renderedContent.classList.add('active');
+            sourceContent.classList.remove('active');
+        } else {
+            sourceTab.classList.add('active');
+            renderedTab.classList.remove('active');
+            sourceContent.classList.add('active');
+            renderedContent.classList.remove('active');
+        }
+    }
+
+    function openConfirmModal(action, postId, message, phrase) {
+        currentAction = action;
+        currentPostId = postId;
+        
+        document.getElementById('confirm-title').textContent = `Confirm ${action.charAt(0).toUpperCase() + action.slice(1)}`;
+        document.getElementById('confirm-message').textContent = message;
+        document.getElementById('confirm-phrase').textContent = phrase;
+        document.getElementById('confirm-input').value = '';
+        document.getElementById('confirm-action-btn').disabled = true;
+        document.getElementById('confirm-modal').style.display = 'flex';
+    }
+
+    function closeConfirmModal() {
+        document.getElementById('confirm-modal').style.display = 'none';
+        currentAction = null;
+    }
+
+    async function executeConfirmedAction() {
+        if (!currentAction || !currentPostId) return;
+
+        let url, body;
+        if (currentAction === 'approve') {
+            url = `${contributorPrefix}/api/pending/${currentPostId}/approve`;
+            body = JSON.stringify({ confirmation: 'yes' });
+        } else if (currentAction === 'delete') {
+            url = `${contributorPrefix}/api/pending/${currentPostId}/delete`;
+            body = null;
+        } else {
+            return;
+        }
+
+        const button = document.getElementById('confirm-action-btn');
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Processing...';
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': body ? 'application/json' : undefined,
+                    'X-CSRF-Token': csrfToken
+                },
+                body: body
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'An unknown error occurred.');
+
+            showNotification(result.message, 'success');
+            closeConfirmModal();
+            closeReviewModal();
+            loadPendingPosts(currentPage);
+
+        } catch (error) {
+            showNotification(error.message, 'error');
+        } finally {
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+    }
+    
+    function showNotification(message, type) { 
+        const container = document.getElementById('notification-container');
+        container.innerHTML = ''; 
+        const notification = document.createElement('div'); 
+        notification.className = type === 'success' ? 'success' : 'error'; 
+        notification.textContent = message; 
+        notification.style.transition = 'opacity 0.5s ease'; 
+        container.appendChild(notification); 
+        setTimeout(() => { notification.style.opacity = '0'; }, 4500); 
+        setTimeout(() => { notification.remove(); }, 5000); 
+    }
+</script>
+{% endblock scripts %}

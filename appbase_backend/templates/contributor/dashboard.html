@@ -1,0 +1,1175 @@
+{% extends "base.html" %}
+
+{% block head %}
+<link rel="stylesheet" href="/ssr_static/css/toastui-editor.min.css">
+<style>
+    .new-upload-blob {
+        background-color: #e9e9ff; border: 1px solid #c1c1ff; border-radius: 8px;
+        padding: 1.5rem; margin-bottom: 1rem; display: flex;
+        justify-content: space-between; align-items: center; gap: 1rem;
+    }
+    .new-upload-blob code {
+        word-break: break-all; background-color: #d8d8f5;
+        padding: 0.5rem; border-radius: 4px; flex-grow: 1;
+    }
+    .new-upload-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+    .icon-button {
+        background: none; border: 1px solid #5a67d8; color: #5a67d8; cursor: pointer;
+        padding: 0.5rem; border-radius: 4px; display: flex; align-items: center; justify-content: center;
+    }
+    .icon-button:hover { background: #e9e9ff; }
+    .icon-button.danger { border-color: #e53e3e; color: #e53e3e; }
+    .icon-button.danger:hover { background: #fed7d7; }
+    .media-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 1rem; margin-top: 1rem;
+    }
+    .media-card { border: 1px solid #ddd; border-radius: 4px; padding: 1rem; }
+    .media-card-preview {
+        width: 100%; height: 150px; object-fit: cover;
+        background-color: #f4f4f9; border-radius: 4px; margin-bottom: 1rem;
+    }
+    .placeholder {
+        padding: 2rem; text-align: center; color: #718096;
+        border: 2px dashed #ddd; border-radius: 8px; margin-top: 1rem;
+    }
+    .modal-backdrop {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(0,0,0,0.6); display: flex;
+        justify-content: center; align-items: center; z-index: 1000;
+    }
+    .modal-content {
+        background: white; padding: 2rem; border-radius: 8px;
+        max-width: 500px; width: 90%; box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    }
+    .modal-footer, .modal-content #modal-step-1, .modal-content #modal-step-2 .modal-footer {
+        margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem;
+    }
+    .modal-content input[type="text"] { width: 100%; margin: 1rem 0; }
+    #advanced-options {
+        border-top: 2px solid #ddd;
+        margin-top: 2rem;
+        padding-top: 1rem;
+    }
+    .advanced-content {
+        display: none;
+        margin-top: 1rem;
+    }
+    .scrollable-list {
+        max-height: 60vh;
+        overflow-y: auto;
+        border: 1px solid #e2e8f0;
+        padding: 1rem;
+        border-radius: 8px;
+    }
+    .tag-select {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: white;
+        min-height: 120px;
+    }
+    .tag-blobs-container, #edit-tag-blobs-container {
+        margin-top: 0.75rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .tag-blob {
+        background-color: #e9e9ff;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+    }
+    .tag-blob-remove {
+        background: none;
+        border: none;
+        color: #c53030;
+        cursor: pointer;
+        padding: 0;
+        font-weight: bold;
+        font-size: 1.2rem;
+        line-height: 1;
+    }
+</style>
+{% endblock head %}
+
+{% block content %}
+<header>
+    <h1>Contributor Dashboard</h1>
+    <div class="user-info">
+        <span>Welcome, <strong>{{ user.username }}</strong> ({{ user.role }})</span>
+        {% if user.can_approve_posts %}
+        <a href="/management/{{ contributor_path_prefix }}/approve" class="button-link" style="margin-left: 1rem;">Approve Posts</a>
+        {% endif %}
+        <form action="/management/{{ contributor_path_prefix }}/logout" method="post" style="display:inline; margin-left: 1rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit">Logout</button>
+        </form>
+    </div>
+</header>
+<main>
+    <div id="notification-container"></div>
+
+    <section class="card">
+        <h2>Create New Blog Post</h2>
+        <form action="/management/{{ contributor_path_prefix }}/submit_post" method="post" id="post-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group"><label for="title">Title</label><input type="text" id="title" name="title" required></div>
+            <div class="form-group"><label for="summary">Summary</label><input type="text" id="summary" name="summary" required></div>
+            <div class="form-group"><label for="cover_image">Cover Image URL (Optional)</label><input type="text" id="cover_image" name="cover_image"></div>
+            
+            <div class="form-group">
+                <label for="post-tags-select">Tags</label>
+                <select id="post-tags-select">
+                    <option value="">-- Choose a tag --</option>
+                </select>
+                <div id="tag-blobs-container" class="tag-blobs-container"></div>
+                <input type="hidden" id="tags" name="tags">
+            </div>
+
+            <div class="form-group">
+                <label for="search_keywords">Search Appearance Keywords (comma-separated)</label>
+                <input type="text" id="search_keywords" name="search_keywords" placeholder="e.g., rust programming, web backend, actix-web tutorial">
+            </div>
+
+            <div class="form-group"><label for="has_call_to_action">Include Call to Action?</label><select id="has_call_to_action" name="has_call_to_action"><option value="none" selected>Default (None)</option><option value="true">Yes</option><option value="false">No</option></select></div>
+            <div class="form-group"><label for="content">Content</label><div id="editor"></div><input type="hidden" name="content" id="content-input"></div>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+                <button type="button" id="save-draft-btn" class="button-secondary">Save Draft</button>
+                <button type="button" id="download-md-btn" class="button-secondary">Download Markdown</button>
+                <button type="button" id="publish-btn">Submit for Approval</button>
+                <button type="button" id="clear-draft-btn" class="button-secondary">Clear Draft</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Media Management</h2>
+        <div id="new-upload-container"></div>
+        <p>Upload new files to associate them with your current draft or search the library for existing assets.</p>
+        <form id="media-upload-form" action="/management/{{ contributor_path_prefix }}/upload_media" method="post" enctype="multipart/form-data">
+            <div class="form-group"><label for="file">Upload File</label><input type="file" id="file" name="file" required></div>
+            <div class="form-group"><label for="media-summary">File Summary (Mandatory)</label><input type="text" id="media-summary" name="summary" placeholder="e.g., 'Logo for our new project'" required></div>
+            <div class="form-group">
+                <label for="media-tags-input">File Tags (Mandatory, comma-separated)</label>
+                <input type="text" id="media-tags-input" name="tags" placeholder="e.g., project-logo, branding, new-feature" required>
+            </div>
+            <button type="submit" id="upload-button">Upload</button>
+        </form>
+    </section>
+    
+    <section class="card">
+        <div style="margin-bottom: 1rem;">
+            <button id="toggle-local-history-btn" class="button-secondary" style="width: 100%;">Show My Upload History (Local Records)</button>
+        </div>
+        <div id="local-history-container" style="display: none;">
+            <h3>Search Your Upload History (Local Records)</h3>
+            <div class="form-group" style="display: flex; gap: 1rem;">
+                <input type="search" id="local-search-input" placeholder="Filter by tag or summary..." style="flex-grow: 1;">
+            </div>
+            <div id="local-search-results" class="media-grid scrollable-list"></div>
+            <div id="local-history-pagination" style="margin-top: 1rem; text-align: center; display: none;">
+                <button id="local-history-back-btn" class="button-secondary">Back</button>
+                <span id="local-history-page-info" style="margin: 0 1rem; display: inline-block; min-width: 80px;"></span>
+                <button id="local-history-next-btn" class="button-secondary">Next</button>
+            </div>
+        </div>
+    </section>
+
+    <section id="advanced-options" class="card">
+        <h2>
+            <button type="button" id="toggle-advanced-btn" class="button-secondary" style="font-size: 1rem; width: 100%;">
+                Show Advanced Options (From Server)
+            </button>
+        </h2>
+        <div class="advanced-content">
+            <div style="margin-bottom: 1rem;">
+                <button id="toggle-my-pending-btn" class="button-secondary">Show My Pending Submissions</button>
+            </div>
+            <div id="my-pending-container" class="post-list scrollable-list" style="display: none; grid-template-columns: 1fr;"></div>
+            <div id="pending-loader" style="display: none; text-align: center; margin-top: 1rem;">
+                <button id="load-more-pending-btn" class="button-secondary">Load More</button>
+            </div>
+            <hr>
+            <div style="margin-top: 1rem; margin-bottom: 1rem;">
+                <button id="toggle-my-posts-btn" class="button-secondary">Show My Published Posts</button>
+            </div>
+            <div id="my-posts-container" class="post-list scrollable-list" style="display: none; grid-template-columns: 1fr;"></div>
+            <div id="posts-loader" style="display: none; text-align: center; margin-top: 1rem;">
+                <button id="load-more-posts-btn" class="button-secondary">Load More Posts</button>
+            </div>
+            <div id="post-search-container" style="margin-top: 1rem;">
+                <h4>Search All Published Posts</h4>
+                <form id="post-id-search-form" class="post-search-form">
+                    <div class="form-group" style="display: flex; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
+                        <input type="search" id="post-id-search-input" placeholder="Enter exact Post ID..." style="flex-grow: 1;">
+                        <button type="submit" class="button-secondary">Search by ID</button>
+                    </div>
+                </form>
+                <form id="post-tag-search-form" class="post-search-form">
+                    <div class="form-group" style="display: flex; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
+                        <input type="search" id="post-tag-search-input" placeholder="Enter a single tag..." style="flex-grow: 1;">
+                        <button type="submit" class="button-secondary">Search by Tag</button>
+                    </div>
+                </form>
+                <form id="post-title-search-form" class="post-search-form">
+                    <div class="form-group" style="display: flex; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
+                        <input type="search" id="post-title-search-input" placeholder="Enter text from a title..." style="flex-grow: 1;">
+                        <button type="submit" class="button-secondary">Search by Title</button>
+                    </div>
+                </form>
+            </div>
+            <hr>
+            <div style="margin-top: 1rem; margin-bottom: 1rem;">
+                <button id="toggle-my-media-btn" class="button-secondary">Show My Media Library (From Server)</button>
+            </div>
+            <div id="my-media-container" class="media-grid scrollable-list" style="display: none;"></div>
+            <hr>
+            <h3>Search All Media (From Server)</h3>
+            <form id="media-search-form" action="/management/{{ contributor_path_prefix }}/api/media/search" method="get">
+                <div class="form-group" style="display: flex; gap: 1rem;">
+                    <input type="search" name="q" id="search-query-input" placeholder="Search by tag..." style="flex-grow: 1;">
+                    <button type="submit" id="search-button">Search</button>
+                </div>
+            </form>
+            <div id="search-wrapper" style="display: none;">
+                <div style="margin-bottom: 1rem;">
+                    <button id="toggle-search-results-btn" class="button-secondary">Hide Search Results</button>
+                </div>
+                <div id="search-results-container" class="media-grid scrollable-list"></div>
+                <div id="media-search-loader" style="display: none; text-align: center; margin-top: 1rem;">
+                    <button id="load-more-media-btn" class="button-secondary">Load More Media</button>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <div id="delete-modal" class="modal-backdrop" style="display:none;">
+        <div class="modal-content">
+            <h2 id="modal-title">Confirm Deletion</h2>
+            <p id="modal-warning">Are you sure you want to permanently delete this item? This action cannot be undone.</p>
+            <div id="modal-step-1"><button type="button" id="modal-cancel-btn" class="button-secondary">Cancel</button><button type="button" id="modal-continue-btn" class="button-danger">Continue</button></div>
+            <div id="modal-step-2" style="display:none;"><p>To confirm, please type the exact phrase below:</p><p><code>yes, i want to delete</code></p><input type="text" id="modal-confirm-input" autocomplete="off"><div class="modal-footer" style="margin-top: 0;"><button type="button" id="modal-step2-cancel-btn" class="button-secondary">Cancel</button><button type="button" id="modal-final-delete-btn" class="button-danger" disabled>Delete Permanently</button></div></div>
+        </div>
+    </div>
+    <div id="publish-modal" class="modal-backdrop" style="display:none;">
+        <div class="modal-content">
+            <h2>Ready to Submit?</h2><p>Your post will be submitted for approval. To confirm, please type <strong>yes</strong> in the box below.</p><input type="text" id="publish-confirm-input" autocomplete="off"><div class="modal-footer"><button type="button" id="publish-cancel-btn" class="button-secondary">Cancel</button><button type="button" id="publish-submit-btn" class="button-danger" disabled>Submit Post</button></div>
+        </div>
+    </div>
+    <div id="success-modal" class="modal-backdrop" style="display:none;">
+        <div class="modal-content" style="text-align: center;">
+            <h2 id="success-modal-title">Success!</h2>
+            <p id="success-modal-message">Your action was successful.</p>
+            <div class="modal-footer" style="justify-content: center;">
+                <button type="button" id="success-close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+    <div id="similar-check-modal" class="modal-backdrop" style="display:none;">
+        <div class="modal-content" style="max-width: 700px;">
+            <h2>Look for Similar Posts</h2><p>Before you submit, you can optionally check if a post with a similar title or tag already exists.</p><div id="similar-check-actions" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 1px solid #ddd; padding-bottom: 1.5rem;"><button type="button" id="check-by-title-btn">Look by Title</button><button type="button" id="check-by-tags-btn">Look by Tags</button><button type="button" id="check-by-both-btn">Look by Both</button></div><div id="similar-results-container" style="max-height: 300px; overflow-y: auto;"><div class="placeholder">Results will appear here...</div></div><div class="modal-footer"><button type="button" id="similar-check-cancel-btn" class="button-secondary">Cancel</button><button type="button" id="similar-check-continue-btn" class="button-danger">Continue to Submit</button></div>
+        </div>
+    </div>
+    
+    <div id="edit-post-modal" class="modal-backdrop" style="display:none;">
+        <div class="modal-content" style="max-width: 90vw; width: 1200px; max-height: 95vh; display: flex; flex-direction: column;">
+            <form id="edit-post-form" style="display: flex; flex-direction: column; overflow: hidden; flex-grow: 1;">
+                <h2>Edit Post</h2>
+                <div id="edit-modal-metadata" style="margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0;"></div>
+                <div style="overflow-y: auto; padding-right: 1rem; flex-grow: 1;">
+                    <div class="form-group"><label for="edit-title">Title</label><input type="text" id="edit-title" name="title" required></div>
+                    <div class="form-group"><label for="edit-summary">Summary</label><input type="text" id="edit-summary" name="summary" required></div>
+                    <div class="form-group"><label for="edit-cover-image">Cover Image URL (Optional)</label><input type="text" id="edit-cover-image" name="cover_image"></div>
+                    <div class="form-group"><label for="edit-post-tags-select">Tags</label><select id="edit-post-tags-select"><option value="">-- Choose a tag --</option></select><div id="edit-tag-blobs-container" class="tag-blobs-container"></div><input type="hidden" id="edit-tags" name="tags"></div>
+                    <div class="form-group"><label for="edit-search-keywords">Search Appearance Keywords (comma-separated)</label><input type="text" id="edit-search-keywords" name="search_keywords" required></div>
+                    <div class="form-group"><label for="edit-has-call-to-action">Include Call to Action?</label><select id="edit-has-call-to-action" name="has_call_to_action"><option value="none">Default (None)</option><option value="true">Yes</option><option value="false">No</option></select></div>
+                    <div id="edit-modal-editor-container" style="margin: 1rem 0;"></div>
+                </div>
+            </form>
+            <div class="modal-footer" style="flex-shrink: 0; padding-top: 1rem; border-top: 1px solid #ddd;">
+                <button type="button" id="edit-modal-cancel-btn" class="button-secondary">Cancel</button>
+                <button type="button" id="edit-modal-save-btn" class="button-danger">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock content %}
+
+{% block scripts %}
+<script src="/ssr_static/js/toastui-editor-all.min.js"></script>
+<script>
+    const contributorPrefix = "/management/{{ contributor_path_prefix }}";
+    const csrfToken = "{{ csrf_token }}";
+    const editor = new toastui.Editor({ el: document.querySelector('#editor'), height: '500px', initialEditType: 'markdown', previewStyle: 'vertical', usageStatistics: false });
+    
+    const postForm = document.getElementById('post-form'), mediaUploadForm = document.getElementById('media-upload-form'), mediaSearchForm = document.getElementById('media-search-form');
+    const publishBtn = document.getElementById('publish-btn'), saveDraftBtn = document.getElementById('save-draft-btn'), clearDraftBtn = document.getElementById('clear-draft-btn'), downloadMdBtn = document.getElementById('download-md-btn'), toggleAdvancedBtn = document.getElementById('toggle-advanced-btn'), toggleMediaBtn = document.getElementById('toggle-my-media-btn'), togglePostsBtn = document.getElementById('toggle-my-posts-btn'), toggleSearchResultsBtn = document.getElementById('toggle-search-results-btn'), toggleLocalHistoryBtn = document.getElementById('toggle-local-history-btn');
+    const newUploadContainer = document.getElementById('new-upload-container'), myMediaContainer = document.getElementById('my-media-container'), myPostsContainer = document.getElementById('my-posts-container'), searchWrapper = document.getElementById('search-wrapper'), searchResultsContainer = document.getElementById('search-results-container'), notificationContainer = document.getElementById('notification-container'), advancedContent = document.querySelector('.advanced-content'), localHistoryContainer = document.getElementById('local-history-container');
+    const publishModal = document.getElementById('publish-modal'), successModal = document.getElementById('success-modal'), publishConfirmInput = document.getElementById('publish-confirm-input'), publishSubmitBtn = document.getElementById('publish-submit-btn'), publishCancelBtn = document.getElementById('publish-cancel-btn'), successCloseBtn = document.getElementById('success-close-btn');
+    const deleteModal = document.getElementById('delete-modal'), modalContinueBtn = document.getElementById('modal-continue-btn'), modalCancelBtn = document.getElementById('modal-cancel-btn'), modalStep1 = document.getElementById('modal-step-1'), modalStep2 = document.getElementById('modal-step-2'), modalConfirmInput = document.getElementById('modal-confirm-input'), modalFinalDeleteBtn = document.getElementById('modal-final-delete-btn'), modalStep2CancelBtn = document.getElementById('modal-step2-cancel-btn');
+    const localSearchInput = document.getElementById('local-search-input'), localSearchResults = document.getElementById('local-search-results');
+    const similarCheckModal = document.getElementById('similar-check-modal'), similarResultsContainer = document.getElementById('similar-results-container'), checkByTitleBtn = document.getElementById('check-by-title-btn'), checkByTagsBtn = document.getElementById('check-by-tags-btn'), checkByBothBtn = document.getElementById('check-by-both-btn'), similarCheckCancelBtn = document.getElementById('similar-check-cancel-btn'), similarCheckContinueBtn = document.getElementById('similar-check-continue-btn');
+    const postTagsSelect = document.getElementById('post-tags-select'), tagBlobsContainer = document.getElementById('tag-blobs-container'), hiddenPostTagsInput = document.getElementById('tags');
+    const editPostModal = document.getElementById('edit-post-modal'), editPostForm = document.getElementById('edit-post-form'), editModalEditorContainer = document.getElementById('edit-modal-editor-container'), editModalSaveBtn = document.getElementById('edit-modal-save-btn'), editModalCancelBtn = document.getElementById('edit-modal-cancel-btn'), editModalMetadata = document.getElementById('edit-modal-metadata'), editTitleInput = document.getElementById('edit-title'), editSummaryInput = document.getElementById('edit-summary'), editCoverImageInput = document.getElementById('edit-cover-image'), editCtaSelect = document.getElementById('edit-has-call-to-action'), editPostTagsSelect = document.getElementById('edit-post-tags-select'), editTagBlobsContainer = document.getElementById('edit-tag-blobs-container'), editHiddenTagsInput = document.getElementById('edit-tags');
+    let modalEditor = null, currentEditingPostId = null;
+    const postIdSearchForm = document.getElementById('post-id-search-form'), postTagSearchForm = document.getElementById('post-tag-search-form'), postTitleSearchForm = document.getElementById('post-title-search-form');
+    const postIdSearchInput = document.getElementById('post-id-search-input'), postTagSearchInput = document.getElementById('post-tag-search-input'), postTitleSearchInput = document.getElementById('post-title-search-input');
+    const postsLoader = document.getElementById('posts-loader');
+    const loadMorePostsBtn = document.getElementById('load-more-posts-btn');
+    const mediaSearchLoader = document.getElementById('media-search-loader');
+    const loadMoreMediaBtn = document.getElementById('load-more-media-btn');
+    const localHistoryPagination = document.getElementById('local-history-pagination'), localHistoryBackBtn = document.getElementById('local-history-back-btn'), localHistoryNextBtn = document.getElementById('local-history-next-btn'), localHistoryPageInfo = document.getElementById('local-history-page-info');
+
+    window.myPostsPage = 1;
+    window.myPendingPage = 1;
+    window.isShowingMyPosts = false;
+    let postsSearchPage = 1, mediaSearchPage = 1, localHistoryPage = 1;
+    const POSTS_PAGE_SIZE = 10, MEDIA_PAGE_SIZE = 15, LOCAL_HISTORY_PAGE_SIZE = 10;
+    let lastPostSearch = { type: '', query: '' };
+    let lastMediaSearchQuery = '';
+    let currentLocalHistory = [];
+    let formToDelete = null;
+
+    document.addEventListener('DOMContentLoaded', async () => { 
+        addEventListeners(); 
+        await loadDraft();
+    });
+
+    function addEventListeners() {
+        publishBtn.addEventListener('click', () => {
+            const title = document.getElementById('title').value;
+            if (!title.trim()) {
+                showNotification('Please provide a title before submitting.', 'error');
+                return;
+            }
+            similarCheckModal.style.display = 'flex';
+        });
+
+        postForm.addEventListener('submit', handlePostSubmit);
+        mediaUploadForm.addEventListener('submit', handleMediaUpload);
+        mediaSearchForm.addEventListener('submit', handleMediaSearch);
+        saveDraftBtn.addEventListener('click', saveDraft);
+        clearDraftBtn.addEventListener('click', clearDraft);
+        downloadMdBtn.addEventListener('click', downloadMarkdown);
+
+        toggleAdvancedBtn.addEventListener('click', () => {
+            const isHidden = advancedContent.style.display === 'none';
+            advancedContent.style.display = isHidden ? 'block' : 'none';
+            toggleAdvancedBtn.textContent = isHidden ? 'Hide Advanced Options (From Server)' : 'Show Advanced Options (From Server)';
+        });
+
+        toggleLocalHistoryBtn.addEventListener('click', toggleLocalHistoryVisibility);
+        toggleMediaBtn.addEventListener('click', (e) => toggleSectionVisibility(e, myMediaContainer, 'My Media Library (From Server)', handleShowMyMedia));
+        
+        document.getElementById('toggle-my-pending-btn').addEventListener('click', (e) => toggleSectionVisibility(e, document.getElementById('my-pending-container'), 'My Pending Submissions', () => handleShowMyPending(true)));
+        
+        togglePostsBtn.addEventListener('click', (e) => {
+            isShowingMyPosts = true;
+            toggleSectionVisibility(e, myPostsContainer, 'My Published Posts', () => handleShowMyPosts(true));
+        });
+
+        toggleSearchResultsBtn.addEventListener('click', (e) => {
+            const isHidden = searchResultsContainer.style.display === 'none';
+            searchResultsContainer.style.display = isHidden ? 'grid' : 'none';
+            e.target.textContent = isHidden ? 'Hide Search Results' : 'Show Search Results';
+        });
+        
+        document.body.addEventListener('submit', handleDelegatedDeleteSubmit);
+
+        publishCancelBtn.addEventListener('click', () => publishModal.style.display = 'none');
+        publishSubmitBtn.addEventListener('click', () => postForm.requestSubmit());
+        successCloseBtn.addEventListener('click', () => {
+            successModal.style.display = 'none';
+        });
+        publishConfirmInput.addEventListener('input', () => { publishSubmitBtn.disabled = publishConfirmInput.value.toLowerCase() !== 'yes'; });
+
+        modalCancelBtn.addEventListener('click', closeDeleteModal);
+        modalStep2CancelBtn.addEventListener('click', closeDeleteModal);
+        modalContinueBtn.addEventListener('click', () => { modalStep1.style.display = 'none'; modalStep2.style.display = 'block'; });
+        modalConfirmInput.addEventListener('input', () => { modalFinalDeleteBtn.disabled = modalConfirmInput.value !== 'yes, i want to delete'; });
+        modalFinalDeleteBtn.addEventListener('click', () => { if (formToDelete) { handleDeleteItem(formToDelete); } closeDeleteModal(); });
+
+        localSearchInput.addEventListener('input', handleLocalMediaSearch);
+
+        checkByTitleBtn.addEventListener('click', () => handleSimilarCheck('title'));
+        checkByTagsBtn.addEventListener('click', () => handleSimilarCheck('tags'));
+        checkByBothBtn.addEventListener('click', () => handleSimilarCheck('both'));
+        similarCheckCancelBtn.addEventListener('click', () => { similarCheckModal.style.display = 'none'; similarResultsContainer.innerHTML = '<div class="placeholder">Results will appear here...</div>'; });
+        similarCheckContinueBtn.addEventListener('click', () => { similarCheckModal.style.display = 'none'; publishModal.style.display = 'flex'; });
+        
+        loadMorePostsBtn.addEventListener('click', () => {
+            if(isShowingMyPosts) {
+                handleShowMyPosts(false);
+            } else {
+                handleLoadMoreSearchedPosts();
+            }
+        });
+
+        document.getElementById('load-more-pending-btn').addEventListener('click', () => handleShowMyPending(false));
+        loadMoreMediaBtn.addEventListener('click', handleLoadMoreMedia);
+        localHistoryBackBtn.addEventListener('click', () => { if (localHistoryPage > 1) { localHistoryPage--; renderLocalMediaLibrary(); } });
+        localHistoryNextBtn.addEventListener('click', () => { const maxPage = Math.ceil(currentLocalHistory.length / LOCAL_HISTORY_PAGE_SIZE); if (localHistoryPage < maxPage) { localHistoryPage++; renderLocalMediaLibrary(); } });
+
+        postTagsSelect.addEventListener('change', () => handleTagSelection(postTagsSelect, tagBlobsContainer, hiddenPostTagsInput));
+        editPostTagsSelect.addEventListener('change', () => handleTagSelection(editPostTagsSelect, editTagBlobsContainer, editHiddenTagsInput));
+
+        myPostsContainer.addEventListener('click', handlePostsContainerActions);
+        document.getElementById('my-pending-container').addEventListener('click', handlePostsContainerActions);
+
+        editModalSaveBtn.addEventListener('click', handleSaveEditedPost);
+        editModalCancelBtn.addEventListener('click', closeEditModal);
+
+        postIdSearchForm.addEventListener('submit', (e) => handlePostSearch(e, 'post_id', postIdSearchInput));
+        postTagSearchForm.addEventListener('submit', (e) => handlePostSearch(e, 'tag', postTagSearchInput));
+        postTitleSearchForm.addEventListener('submit', (e) => handlePostSearch(e, 'title', postTitleSearchInput));
+    }
+
+    function showSuccessModal(message, title = "Success!") {
+        document.getElementById('success-modal-title').textContent = title;
+        document.getElementById('success-modal-message').textContent = message;
+        document.getElementById('success-modal').style.display = 'flex';
+    }
+
+    async function handlePostSubmit(event) {
+        event.preventDefault(); 
+        publishModal.style.display = 'none'; 
+        const button = document.getElementById('publish-btn');
+        document.querySelector('#content-input').value = editor.getMarkdown();
+        updateHiddenTagsInput(document.getElementById('tag-blobs-container'), document.getElementById('tags'));
+        const body = new URLSearchParams(new FormData(this));
+        await submitForm(this.action, { method: 'POST', body }, button, (result) => {
+            if (result.success) {
+                showSuccessModal(result.message, "Submission Successful!");
+                localStorage.removeItem('postDraft'); 
+                document.getElementById('post-form').reset();
+                editor.setMarkdown(''); 
+                document.getElementById('new-upload-container').innerHTML = ''; 
+                document.getElementById('tag-blobs-container').innerHTML = ''; 
+                fetchAvailableTags(); 
+            } else { 
+                showNotification(result.error || 'Failed to submit post.', 'error'); 
+            }
+        });
+    }
+
+    function handlePostsContainerActions(event) {
+        const form = event.target.closest('form');
+        if (form && form.action.includes('/delete')) {
+            event.preventDefault();
+           /* if (confirm('Are you sure you want to delete this item? This cannot be undone.')) {
+                handleDeleteItem(form);
+            }*/
+            openDeleteModal(form);
+            return;
+        }
+        const editButton = event.target.closest('.edit-post-btn');
+        if (editButton) {
+            event.preventDefault();
+            const postId = editButton.dataset.postId;
+            const isPending = editButton.dataset.isPending === 'true';
+            openEditModal(postId, isPending);
+        }
+    }
+    
+    async function handleShowMyPending(isInitialLoad) {
+        if (isInitialLoad) {
+            window.myPendingPage = 1;
+            document.getElementById('my-pending-container').innerHTML = '';
+        }
+        const url = `${contributorPrefix}/api/mypending?page=${window.myPendingPage || 1}&limit=10`;
+        const button = isInitialLoad ? document.getElementById('toggle-my-pending-btn') : document.getElementById('load-more-pending-btn');
+        await submitForm(url, { method: 'GET' }, button, (result) => {
+            const container = document.getElementById('my-pending-container');
+            const loader = document.getElementById('pending-loader');
+            if (result.success && result.data.length > 0) {
+                result.data.forEach(post => container.insertAdjacentHTML('beforeend', createPendingPostItem(post)));
+                container.style.display = 'grid';
+                if (result.data.length < 10) { 
+                    loader.style.display = 'none';
+                } else { 
+                    loader.style.display = 'block'; 
+                    window.myPendingPage++; 
+                }
+            } else if (isInitialLoad) {
+                container.innerHTML = `<div class="placeholder">You have no pending submissions.</div>`;
+                container.style.display = 'grid';
+                loader.style.display = 'none';
+            } else {
+                showNotification('No more pending submissions to load.', 'success');
+                loader.style.display = 'none';
+            }
+            if (isInitialLoad) {
+                button.textContent = 'Hide My Pending Submissions';
+            }
+        });
+    }
+
+    function createPendingPostItem(post) {
+        return `<div class="post-item">
+            <div>
+                <h3>${post.metadata.title}</h3>
+                <p><strong>ID:</strong> <code>${post.id}</code></p>
+                <p><em>Submitted on: ${new Date(post.metadata.created_at).toLocaleDateString()}</em></p>
+            </div>
+            <div class="post-item-actions">
+                <button type="button" class="button-secondary edit-post-btn" data-post-id="${post.id}" data-is-pending="true">Edit</button>
+                <form action="${contributorPrefix}/api/mypending/${post.id}/delete" method="post">
+                    <input type="hidden" name="csrf_token" value="${csrfToken}">
+                    <input type="hidden" name="post_id" value="${post.id}">
+                    <button type="submit" class="button-danger">Delete</button>
+                </form>
+            </div>
+        </div>`;
+    }
+
+    async function handleShowMyPosts(isInitialLoad) {
+        if (isInitialLoad) {
+            myPostsPage = 1;
+            myPostsContainer.innerHTML = '';
+        }
+        const url = `${contributorPrefix}/api/myposts?page=${myPostsPage}&limit=${POSTS_PAGE_SIZE}`;
+        const button = isInitialLoad ? togglePostsBtn : loadMorePostsBtn;
+        await submitForm(url, { method: 'GET' }, button, (result) => {
+            if (result.success && result.data.length > 0) {
+                result.data.forEach(post => myPostsContainer.insertAdjacentHTML('beforeend', createPostItem(post)));
+                myPostsContainer.style.display = 'grid';
+                if (result.data.length < POSTS_PAGE_SIZE) { 
+                    postsLoader.style.display = 'none'; 
+                } else { 
+                    postsLoader.style.display = 'block'; 
+                    myPostsPage++; 
+                }
+            } else if (isInitialLoad) {
+                myPostsContainer.innerHTML = `<div class="placeholder">You haven't created any posts yet.</div>`;
+                myPostsContainer.style.display = 'grid';
+                postsLoader.style.display = 'none';
+            } else {
+                showNotification('No more posts to load.', 'success');
+                postsLoader.style.display = 'none';
+            }
+            if (isInitialLoad) {
+                togglePostsBtn.textContent = 'Hide My Published Posts';
+            }
+        });
+    }
+
+    function createPostItem(post) {
+        const updated_at = post.metadata.last_updated_at ? `<p><em>Last updated: ${new Date(post.metadata.last_updated_at).toLocaleString()}</em></p>` : '';
+        return `<div class="post-item">
+            <div>
+                <h3>${post.metadata.title}</h3>
+                <p><strong>ID:</strong> <code>${post.id}</code></p>
+                <p><em>Published on: ${new Date(post.metadata.created_at).toLocaleDateString()}</em></p>
+                ${updated_at}
+                <p>${post.metadata.summary}</p>
+            </div>
+            <div class="post-item-actions">
+                <button type="button" class="button-secondary edit-post-btn" data-post-id="${post.id}" data-is-pending="false">Edit</button>
+                <form action="${contributorPrefix}/delete_post" method="post">
+                    <input type="hidden" name="csrf_token" value="${csrfToken}">
+                    <input type="hidden" name="post_id" value="${post.id}">
+                    <button type="submit" class="button-danger">Delete</button>
+                </form>
+            </div>
+        </div>`;
+    }
+
+    function saveDraft() {
+        updateHiddenTagsInput(tagBlobsContainer, hiddenPostTagsInput);
+        const uploadedMedia = Array.from(newUploadContainer.querySelectorAll('.new-upload-blob')).map(blob => ({ url: blob.querySelector('code').textContent, id: blob.querySelector('input[name="media_id"]').value }));
+        const draft = { 
+            title: document.getElementById('title').value, 
+            summary: document.getElementById('summary').value, 
+            cover_image: document.getElementById('cover_image').value, 
+            tags: hiddenPostTagsInput.value, 
+            search_keywords: document.getElementById('search_keywords').value,
+            has_call_to_action: document.getElementById('has_call_to_action').value, 
+            content: editor.getMarkdown(), 
+            media: uploadedMedia 
+        };
+        localStorage.setItem('postDraft', JSON.stringify(draft));
+        showNotification('Draft saved locally!', 'success');
+    }
+    
+    async function loadDraft() {
+        await fetchAvailableTags();
+        const draftJSON = localStorage.getItem('postDraft');
+        if (draftJSON) {
+            const draft = JSON.parse(draftJSON);
+            document.getElementById('title').value = draft.title || ''; 
+            document.getElementById('summary').value = draft.summary || ''; 
+            document.getElementById('cover_image').value = draft.cover_image || ''; 
+            document.getElementById('search_keywords').value = draft.search_keywords || '';
+            document.getElementById('has_call_to_action').value = draft.has_call_to_action || 'none';
+            if(draft.content) editor.setMarkdown(draft.content);
+            if(draft.media && draft.media.length > 0) { 
+                newUploadContainer.innerHTML = ''; 
+                draft.media.forEach(media => prependNewUploadBlob(media.url, media.id)); 
+            }
+            tagBlobsContainer.innerHTML = '';
+            if (draft.tags) {
+                const selectedTags = draft.tags.split(',').map(t => t.trim()).filter(Boolean);
+                selectedTags.forEach(tag => {
+                    addTagBlob(tag, postTagsSelect, tagBlobsContainer, hiddenPostTagsInput);
+                    const optionToHide = Array.from(postTagsSelect.options).find(opt => opt.value === tag);
+                    if (optionToHide) optionToHide.style.display = 'none';
+                });
+            }
+            showNotification('Saved draft loaded.', 'success');
+        }
+    }
+    
+    function clearDraft() { if (confirm('Are you sure you want to clear the saved draft and form? This cannot be undone.')) { localStorage.removeItem('postDraft'); postForm.reset(); editor.setMarkdown(''); newUploadContainer.innerHTML = ''; tagBlobsContainer.innerHTML = ''; fetchAvailableTags(); showNotification('Draft cleared.', 'success'); } }
+    
+    function downloadMarkdown() { const content = editor.getMarkdown(); const title = document.getElementById('title').value.trim().replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'untitled'; const blob = new Blob([content], { type: 'text/markdown' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${title}.md`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
+    
+    function toggleSectionVisibility(event, container, type, loadContentCallback) {
+        const button = event.target;
+        const isHidden = container.style.display === 'none';
+        if (isHidden) { 
+            if (loadContentCallback) {
+                loadContentCallback();
+            }
+        } else { 
+            container.style.display = 'none'; 
+            button.textContent = `Show ${type}`; 
+            if (type.includes('Published Posts')) postsLoader.style.display = 'none';
+            if (type.includes('Pending Submissions')) document.getElementById('pending-loader').style.display = 'none';
+        }
+    }
+
+    async function handleDelegatedDeleteSubmit(event) {
+        const form = event.target.closest('form');
+        if (!form || !form.action.includes('/delete')) return;
+        event.preventDefault();
+        if (form.closest('#my-media-container')) {
+            openDeleteModal(form);
+        } else {
+            if (confirm('Are you sure you want to delete this item? This cannot be undone.')) {
+                handleDeleteItem(form);
+            }
+        }
+    }
+
+    async function handleMediaUpload(event) {
+        event.preventDefault(); 
+        const form = event.target; 
+        const button = form.querySelector('button[type="submit"]'); 
+        const fileInput = form.querySelector('#file'); 
+        if (fileInput.files.length === 0) { showNotification('Please select a file to upload.', 'error'); return; }
+
+        const formData = new FormData(form);
+        const tags = formData.get('tags').trim();
+
+        if (!tags) {
+            showNotification('Please provide at least one tag for the file.', 'error');
+            return;
+        }
+
+        await submitForm(form.action, { method: 'POST', body: formData }, button, (result) => {
+            if (result.success) { 
+                showNotification('File uploaded successfully!', 'success'); 
+                prependNewUploadBlob(result.url, result.id); 
+                const summary = formData.get('summary');
+                const mediaData = { id: result.id, url: result.url, summary, tags, timestamp: new Date().toISOString() }; 
+                addMediaToLocalStorage(mediaData); 
+                form.reset(); 
+            } 
+            else { showNotification(result.error || 'Upload failed.', 'error'); }
+        });
+    }
+
+    async function handleDeleteItem(form) {
+        const button = form.querySelector('button[type="submit"]'); 
+        const body = new URLSearchParams(new FormData(form)); 
+        const mediaId = body.get('media_id');
+        await submitForm(form.action, { method: 'POST', body }, button, (result) => {
+            if (result.success) { 
+                showNotification(result.message || 'Item deleted successfully.', 'success'); 
+                form.closest('.post-item, .media-card, .new-upload-blob')?.remove(); 
+                if (mediaId) { 
+                    removeMediaFromLocalStorage(mediaId); 
+                    if (localHistoryContainer.style.display !== 'none') { 
+                        handleLocalMediaSearch(); 
+                    } 
+                } 
+            } 
+            else { 
+                showNotification(result.error || 'Failed to delete item.', 'error'); 
+            }
+        });
+    }
+    
+    async function submitForm(url, options, button, callback) {
+        const originalText = button ? button.textContent : '';
+        if(button) { button.disabled = true; button.textContent = 'Loading...'; }
+        
+        if (!options.headers) options.headers = {};
+        
+        if (options.method && options.method.toUpperCase() !== 'GET') {
+            options.headers['X-Requested-With'] = 'XMLHttpRequest';
+            if (!(options.body instanceof FormData)) {
+                options.headers['X-CSRF-Token'] = csrfToken; 
+            }
+        }
+
+        try { 
+            const response = await fetch(url, options); 
+            if (!response.ok) {
+                const errorResult = await response.json().catch(() => ({error: 'An unknown server error occurred.'}));
+                throw new Error(errorResult.error || `Server responded with status: ${response.status}`); 
+            }
+            const result = await response.json(); 
+            callback(result); 
+        } catch (error) { 
+            console.error('Request failed:', error); 
+            showNotification(error.message, 'error'); 
+        } finally { 
+            if(button) { 
+                button.disabled = false; 
+                button.textContent = originalText; 
+            } 
+        }
+    }
+
+    function showNotification(message, type) { 
+        notificationContainer.innerHTML = ''; 
+        const notification = document.createElement('div'); 
+        notification.className = type === 'success' ? 'success' : 'error'; 
+        notification.textContent = message; 
+        notification.style.transition = 'opacity 0.5s ease'; 
+        notificationContainer.appendChild(notification); 
+        setTimeout(() => { notification.style.opacity = '0'; }, 4500); 
+        setTimeout(() => { notification.remove(); }, 5000); 
+    }
+
+    async function openEditModal(postId, isPending = false) {
+        currentEditingPostId = postId;
+        editModalEditorContainer.innerHTML = '<div class="placeholder">Loading post...</div>';
+        editModalMetadata.innerHTML = '';
+        editPostModal.style.display = 'flex';
+        editModalSaveBtn.dataset.isPending = isPending;
+
+        const url = isPending
+            ? `${contributorPrefix}/api/mypending/${postId}`
+            : `${contributorPrefix}/api/posts/${postId}`;
+
+        try {
+            const response = await fetch(url);
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.error || 'Post not found or permission denied');
+            }
+            const postData = result.data;
+
+            const lastUpdated = postData.metadata.last_updated_at 
+                ? ` | Last updated: <strong>${new Date(postData.metadata.last_updated_at).toLocaleString()}</strong>` 
+                : '';
+            editModalMetadata.innerHTML = `<p style="margin: 0.5rem 0;">Created: <strong>${new Date(postData.metadata.created_at).toLocaleString()}</strong>${lastUpdated}</p>`;
+
+            editTitleInput.value = postData.metadata.title;
+            editSummaryInput.value = postData.metadata.summary;
+            editCoverImageInput.value = postData.metadata.cover_image || '';
+            document.getElementById('edit-search-keywords').value = (postData.metadata.search_keywords || []).join(', ');
+            
+            const ctaValue = postData.metadata.has_call_to_action;
+            if (ctaValue === true) {
+                editCtaSelect.value = 'true';
+            } else if (ctaValue === false) {
+                editCtaSelect.value = 'false';
+            } else {
+                editCtaSelect.value = 'none';
+            }
+
+            await initializeModalTagSelector(postData.metadata.tags);
+
+            if (modalEditor) {
+                modalEditor.destroy();
+            }
+            
+            editModalEditorContainer.innerHTML = ''; 
+            modalEditor = new toastui.Editor({
+                el: editModalEditorContainer,
+                height: '50vh',
+                initialEditType: 'markdown',
+                previewStyle: 'vertical',
+                initialValue: postData.content,
+                usageStatistics: false
+            });
+
+        } catch (error) {
+            showNotification(`Error fetching post: ${error.message}`, 'error');
+            closeEditModal();
+        }
+    }
+
+    async function initializeModalTagSelector(postTags = []) {
+        editTagBlobsContainer.innerHTML = '';
+        editPostTagsSelect.innerHTML = '<option value="">-- Choose a tag --</option>';
+
+        const url = `${contributorPrefix}/api/tags`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Failed to fetch tags');
+            const result = await response.json();
+
+            if (result.success && result.data) {
+                result.data.forEach(tag => {
+                    const option = new Option(tag, tag);
+                    if (postTags.includes(tag)) {
+                        option.style.display = 'none';
+                    }
+                    editPostTagsSelect.add(option);
+                });
+            }
+            postTags.forEach(tag => {
+                addTagBlob(tag, editPostTagsSelect, editTagBlobsContainer, editHiddenTagsInput);
+            });
+
+        } catch (error) {
+            console.error('Could not load available tags for modal:', error);
+        }
+    }
+
+    function closeEditModal() {
+        editPostModal.style.display = 'none';
+        if (modalEditor) {
+            modalEditor.destroy();
+            modalEditor = null;
+        }
+        editPostForm.reset();
+        editTagBlobsContainer.innerHTML = '';
+        editModalEditorContainer.innerHTML = '';
+        currentEditingPostId = null;
+    }
+
+    async function handleSaveEditedPost() {
+        if (!modalEditor || !currentEditingPostId) return;
+
+        updateHiddenTagsInput(editTagBlobsContainer, editHiddenTagsInput);
+
+        const coverImageValue = editCoverImageInput.value.trim();
+        const ctaSelectValue = editCtaSelect.value;
+        let hasCta = null;
+        if (ctaSelectValue === 'true') hasCta = true;
+        if (ctaSelectValue === 'false') hasCta = false;
+
+        const payload = {
+            title: editTitleInput.value,
+            summary: editSummaryInput.value,
+            content: modalEditor.getMarkdown(),
+            tags: editHiddenTagsInput.value,
+            search_keywords: document.getElementById('edit-search-keywords').value,
+            cover_image: coverImageValue === '' ? null : coverImageValue,
+            has_call_to_action: hasCta
+        };
+        
+        const isPending = editModalSaveBtn.dataset.isPending === 'true';
+        const url = isPending
+            ? `${contributorPrefix}/api/mypending/${currentEditingPostId}/update`
+            : `${contributorPrefix}/api/posts/${currentEditingPostId}/update`;
+
+        const options = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify(payload)
+        };
+
+        await submitForm(url, options, editModalSaveBtn, (result) => {
+            if (result.success) {
+                showNotification(result.message || 'Post updated!', 'success');
+                closeEditModal();
+                if (isPending) {
+                    handleShowMyPending(true);
+                } else {
+                    handleShowMyPosts(true);
+                }
+            } else {
+                showNotification(result.error || 'Failed to update post.', 'error');
+            }
+        });
+    }
+
+    function handleTagSelection(selectEl, containerEl, hiddenInputEl) {
+        const selectedOption = selectEl.options[selectEl.selectedIndex];
+        if (!selectedOption || !selectedOption.value) return;
+        addTagBlob(selectedOption.value, selectEl, containerEl, hiddenInputEl);
+        selectedOption.style.display = 'none';
+        selectEl.selectedIndex = 0;
+    }
+
+    function addTagBlob(tagName, selectEl, containerEl, hiddenInputEl) {
+        if (Array.from(containerEl.querySelectorAll('.tag-blob')).some(blob => blob.dataset.tag === tagName)) {
+            return;
+        }
+
+        const blob = document.createElement('div');
+        blob.className = 'tag-blob';
+        blob.textContent = tagName;
+        blob.dataset.tag = tagName;
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'tag-blob-remove';
+        removeBtn.innerHTML = '&times;';
+        removeBtn.addEventListener('click', () => {
+            blob.remove();
+            const optionToUnhide = Array.from(selectEl.options).find(opt => opt.value === tagName);
+            if (optionToUnhide) optionToUnhide.style.display = 'block';
+            updateHiddenTagsInput(containerEl, hiddenInputEl);
+        });
+        blob.appendChild(removeBtn);
+        containerEl.appendChild(blob);
+        updateHiddenTagsInput(containerEl, hiddenInputEl);
+    }
+
+    function updateHiddenTagsInput(containerEl, hiddenInputEl) {
+        const currentTags = Array.from(containerEl.querySelectorAll('.tag-blob')).map(blob => blob.dataset.tag);
+        hiddenInputEl.value = currentTags.join(',');
+    }
+
+    async function fetchAvailableTags() {
+        const url = `${contributorPrefix}/api/tags`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Failed to fetch tags');
+            const result = await response.json();
+            if (result.success && result.data) {
+                postTagsSelect.innerHTML = '<option value="">-- Choose a tag --</option>';
+                result.data.forEach(tag => {
+                    const option = new Option(tag, tag);
+                    postTagsSelect.add(option);
+                });
+            }
+        } catch (error) {
+            console.error('Could not load available tags:', error);
+            showNotification('Could not load available tags. Please contact an admin.', 'error');
+        }
+    }
+
+    async function handleSimilarCheck(checkType) {
+        updateHiddenTagsInput(tagBlobsContainer, hiddenPostTagsInput);
+        const title = document.getElementById('title').value.trim();
+        const tags = hiddenPostTagsInput.value;
+        const buttonMap = { title: checkByTitleBtn, tags: checkByTagsBtn, both: checkByBothBtn };
+        const button = buttonMap[checkType];
+        const url = `${contributorPrefix}/api/posts/check_similar`;
+        const options = { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken }, 
+            body: JSON.stringify({ title, tags, check_type: checkType }) 
+        };
+        await submitForm(url, options, button, (result) => {
+            similarResultsContainer.innerHTML = '';
+            if (result.success && result.data.length > 0) { 
+                result.data.forEach(post => { 
+                    const postHTML = createPostItem(post).replace(/<div class="post-item-actions">[\s\S]*?<\/div>/, ''); 
+                    similarResultsContainer.insertAdjacentHTML('beforeend', postHTML); 
+                }); 
+            }
+            else if (result.success) { 
+                similarResultsContainer.innerHTML = `<div class="placeholder">No similar posts found.</div>`; 
+            }
+            else { 
+                similarResultsContainer.innerHTML = `<div class="placeholder error">Error checking for posts.</div>`; 
+            }
+        });
+    }
+
+    function openDeleteModal(form) { 
+        formToDelete = form; 
+        deleteModal.style.display = 'flex'; 
+    }
+
+    function closeDeleteModal() { 
+        deleteModal.style.display = 'none'; 
+        modalStep1.style.display = 'flex'; 
+        modalStep2.style.display = 'none'; 
+        modalConfirmInput.value = ''; 
+        modalFinalDeleteBtn.disabled = true; 
+        formToDelete = null; 
+    }
+    
+    async function handleShowMyMedia() {
+        const url = `${contributorPrefix}/api/mymedia`;
+        await submitForm(url, { method: 'GET' }, toggleMediaBtn, (result) => {
+            myMediaContainer.innerHTML = '';
+            if (result.success && result.data.length > 0) { 
+                result.data.forEach(file => myMediaContainer.insertAdjacentHTML('beforeend', createMediaCard(file, true))); 
+            } else { 
+                myMediaContainer.innerHTML = `<div class="placeholder">You haven't uploaded any media yet.</div>`; 
+            }
+            myMediaContainer.style.display = 'grid'; 
+            toggleMediaBtn.textContent = 'Hide My Media Library (From Server)';
+        });
+    }
+    
+    async function handleMediaSearch(event) {
+        event.preventDefault();
+        mediaSearchPage = 1;
+        lastMediaSearchQuery = document.getElementById('search-query-input').value.trim();
+        if (!lastMediaSearchQuery) return;
+        
+        const url = `${this.action}?q=${encodeURIComponent(lastMediaSearchQuery)}&page=${mediaSearchPage}&limit=${MEDIA_PAGE_SIZE}`;
+        await submitForm(url, { method: 'GET' }, this.querySelector('button[type="submit"]'), (result) => {
+            searchResultsContainer.innerHTML = '';
+            if (result.success && result.data.length > 0) {
+                result.data.forEach(file => searchResultsContainer.insertAdjacentHTML('beforeend', createMediaCard(file, false)));
+                searchWrapper.style.display = 'block';
+                searchResultsContainer.style.display = 'grid';
+                toggleSearchResultsBtn.textContent = 'Hide Search Results';
+                if (result.data.length === MEDIA_PAGE_SIZE) {
+                    mediaSearchLoader.style.display = 'block';
+                } else {
+                    mediaSearchLoader.style.display = 'none';
+                }
+            } else {
+                searchResultsContainer.innerHTML = `<div class="placeholder">No media found for that tag.</div>`;
+                searchWrapper.style.display = 'block';
+                mediaSearchLoader.style.display = 'none';
+            }
+        });
+    }
+    
+    async function handleLoadMoreMedia() {
+        mediaSearchPage++;
+        const url = `${mediaSearchForm.action}?q=${encodeURIComponent(lastMediaSearchQuery)}&page=${mediaSearchPage}&limit=${MEDIA_PAGE_SIZE}`;
+        await submitForm(url, { method: 'GET' }, loadMoreMediaBtn, (result) => {
+            if (result.success && result.data.length > 0) {
+                result.data.forEach(file => searchResultsContainer.insertAdjacentHTML('beforeend', createMediaCard(file, false)));
+                if (result.data.length < MEDIA_PAGE_SIZE) {
+                    mediaSearchLoader.style.display = 'none';
+                }
+            } else {
+                showNotification('No more media to load.', 'success');
+                mediaSearchLoader.style.display = 'none';
+            }
+        });
+    }
+    
+    async function handlePostSearch(event, searchType, inputElement) {
+        event.preventDefault();
+        isShowingMyPosts = false;
+        postsSearchPage = 1;
+        lastPostSearch.type = searchType;
+        lastPostSearch.query = inputElement.value.trim();
+
+        if (!lastPostSearch.query) {
+            showNotification('Please enter a search term.', 'error');
+            return;
+        }
+
+        const url = `${contributorPrefix}/api/posts/search?search_type=${searchType}&q=${encodeURIComponent(lastPostSearch.query)}&page=${postsSearchPage}&limit=${POSTS_PAGE_SIZE}`;
+        await submitForm(url, { method: 'GET' }, event.target.querySelector('button[type="submit"]'), (result) => {
+            myPostsContainer.innerHTML = '';
+            if (result.success && result.data.length > 0) {
+                result.data.forEach(post => myPostsContainer.insertAdjacentHTML('beforeend', createPostItem(post)));
+                if (result.data.length === POSTS_PAGE_SIZE) {
+                    postsLoader.style.display = 'block';
+                } else {
+                    postsLoader.style.display = 'none';
+                }
+            } else {
+                myPostsContainer.innerHTML = `<div class="placeholder">No posts found for your query.</div>`;
+                postsLoader.style.display = 'none';
+            }
+            myPostsContainer.style.display = 'grid';
+            togglePostsBtn.textContent = 'Show My Published Posts';
+        });
+    }
+
+    async function handleLoadMoreSearchedPosts() {
+        postsSearchPage++;
+        const url = `${contributorPrefix}/api/posts/search?search_type=${lastPostSearch.type}&q=${encodeURIComponent(lastPostSearch.query)}&page=${postsSearchPage}&limit=${POSTS_PAGE_SIZE}`;
+        
+        await submitForm(url, { method: 'GET' }, loadMorePostsBtn, (result) => {
+            if (result.success && result.data.length > 0) {
+                result.data.forEach(post => myPostsContainer.insertAdjacentHTML('beforeend', createPostItem(post)));
+                if (result.data.length < POSTS_PAGE_SIZE) {
+                    postsLoader.style.display = 'none';
+                }
+            } else {
+                showNotification('No more posts to load.', 'success');
+                postsLoader.style.display = 'none';
+            }
+        });
+    }
+
+    const LOCAL_MEDIA_KEY = 'contributorMediaLibrary';
+    function getLocalMediaLibrary() { return JSON.parse(localStorage.getItem(LOCAL_MEDIA_KEY)) || []; }
+    function saveLocalMediaLibrary(library) { localStorage.setItem(LOCAL_MEDIA_KEY, JSON.stringify(library)); }
+    function addMediaToLocalStorage(mediaData) { 
+        const library = getLocalMediaLibrary(); 
+        if (!library.some(item => item.id === mediaData.id)) { 
+            library.unshift(mediaData); 
+            saveLocalMediaLibrary(library); 
+        } 
+    }
+    function removeMediaFromLocalStorage(mediaId) { 
+        let library = getLocalMediaLibrary(); 
+        library = library.filter(item => item.id !== mediaId); 
+        saveLocalMediaLibrary(library); 
+    }
+    
+    function toggleLocalHistoryVisibility() {
+        const isHidden = localHistoryContainer.style.display === 'none';
+        localHistoryContainer.style.display = isHidden ? 'block' : 'none';
+        toggleLocalHistoryBtn.textContent = isHidden ? 'Hide My Upload History (Local Records)' : 'Show My Upload History (Local Records)';
+        if (isHidden) {
+            handleLocalMediaSearch();
+        }
+    }
+    
+    function renderLocalMediaLibrary() {
+        const startIndex = (localHistoryPage - 1) * LOCAL_HISTORY_PAGE_SIZE;
+        const endIndex = startIndex + LOCAL_HISTORY_PAGE_SIZE;
+        const paginatedItems = currentLocalHistory.slice(startIndex, endIndex);
+
+        localSearchResults.innerHTML = '';
+        if (paginatedItems.length > 0) {
+            paginatedItems.forEach(file => {
+                const card = createMediaCard({ id: file.id, file_path: file.url, summary: file.summary, tags: file.tags, original_filename: '' }, false);
+                localSearchResults.insertAdjacentHTML('beforeend', card);
+            });
+        } else if(localHistoryPage === 1) {
+            localSearchResults.innerHTML = `<div class="placeholder">You have no recorded uploads in this browser.</div>`;
+        }
+        updateLocalHistoryPaginationControls();
+    }
+
+    function updateLocalHistoryPaginationControls() {
+        const totalItems = currentLocalHistory.length;
+        if(totalItems <= LOCAL_HISTORY_PAGE_SIZE) {
+            localHistoryPagination.style.display = 'none';
+            return;
+        }
+
+        localHistoryPagination.style.display = 'block';
+        const maxPage = Math.ceil(totalItems / LOCAL_HISTORY_PAGE_SIZE);
+        
+        localHistoryPageInfo.textContent = `Page ${localHistoryPage} of ${maxPage}`;
+        localHistoryBackBtn.disabled = localHistoryPage === 1;
+        localHistoryNextBtn.disabled = localHistoryPage === maxPage;
+    }
+
+    function handleLocalMediaSearch() {
+        const query = localSearchInput.value.toLowerCase().trim();
+        const library = getLocalMediaLibrary();
+        currentLocalHistory = (query === '') ? library : library.filter(media => media.tags.toLowerCase().includes(query) || media.summary.toLowerCase().includes(query));
+        localHistoryPage = 1;
+        renderLocalMediaLibrary();
+    }
+    
+    function prependNewUploadBlob(url, id) { const blobHTML = `<div class="new-upload-blob"><div><strong>Upload Successful!</strong><br><code>${url}</code></div><div class="new-upload-actions"><input type="hidden" name="media_id" value="${id}"><button type="button" class="icon-button" title="Copy URL" onclick="copyToClipboard('${url}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-0.5A.5.5 0 0 1-1 7zM5 1.5A1.5 1.5 0 0 1 6.5 0h3A1.5 1.5 0 0 1 11 1.5v1A1.5 1.5 0 0 1 9.5 4h-3A1.5 1.5 0 0 1 5 2.5v-1z"/></svg></button><form action="${contributorPrefix}/delete_media" method="post" style="display:inline;"><input type="hidden" name="csrf_token" value="${csrfToken}"><input type="hidden" name="media_id" value="${id}"><button type="submit" class="icon-button danger" title="Delete File"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg></button></form></div></div>`; newUploadContainer.insertAdjacentHTML('afterbegin', blobHTML); }
+    
+    function createMediaCard(file, showDeleteButton) { const deleteButtonHTML = showDeleteButton ? `<form action="${contributorPrefix}/delete_media" method="post" style="display:inline;"><input type="hidden" name="csrf_token" value="${csrfToken}"><input type="hidden" name="media_id" value="${file.id}"><button type="submit" class="button-danger">Delete</button></form>` : ''; return `<div class="media-card"><img src="${file.file_path}" alt="${file.summary}" class="media-card-preview" loading="lazy"><p title="${file.original_filename || ''}"><strong>${file.summary}</strong></p><p><strong>Tags:</strong> ${file.tags}</p><div class="new-upload-actions" style="margin-top: 1rem; justify-content: space-between;"><button type="button" class="button-secondary" onclick="copyToClipboard('${file.file_path}')">Copy URL</button>${deleteButtonHTML}</div></div>`; }
+    
+    function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => showNotification('URL copied to clipboard!', 'success'), () => showNotification('Failed to copy URL.', 'error')); }
+
+</script>
+{% endblock scripts %}

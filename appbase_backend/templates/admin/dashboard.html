@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+<header>
+    <h1>Admin Dashboard</h1>
+    <div class="user-info">
+        <span>Welcome, <strong>{{ user.username }}</strong> ({{ user.role }})</span>
+        <form action="/management/{{ admin_url_prefix }}/logout" method="post" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit">Logout</button>
+        </form>
+    </div>
+</header>
+<main>
+    {% if notification %}
+    <div class="{% if notification.type == 'success' %}success{% else %}error{% endif %}">{{ notification.message }}</div>
+    {% endif %}
+
+    <section class="card">
+        <h2>Site Settings</h2>
+        <form action="/management/{{ admin_url_prefix }}/update_settings" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label for="contributor_path_prefix">Secret Contributor URL Prefix</label>
+                <input type="text" name="contributor_path_prefix" value="{{ settings.contributor_path_prefix }}" required pattern="[a-zA-Z0-9-]+" title="Only letters, numbers, and hyphens are allowed.">
+            </div>
+            <div class="form-group">
+                <label for="max_file_upload_size_mb">Maximum File Upload Size (in MB)</label>
+                <input type="number" name="max_file_upload_size_mb" value="{{ settings.max_file_upload_size_mb }}" required min="1">
+            </div>
+            <div class="form-group">
+                <label for="allowed_mime_types">Allowed MIME Types (comma-separated)</label>
+                <p style="font-size: 0.9rem; color: #555; margin-top: -0.5rem;">
+                    Example: <code>image/jpeg,image/png,application/pdf,video/mp4,model/gltf-binary</code>
+                </p>
+                <input type="text" name="allowed_mime_types" value="{{ settings.allowed_mime_types }}" placeholder="e.g., image/jpeg,image/png,application/pdf">
+            </div>
+            <button type="submit">Save Settings</button>
+        </form>
+    </section>
+    
+    <section class="card">
+        <h2>Tag Management</h2>
+        <p>Add or remove tags that contributors can select from.</p>
+        
+        <form action="/management/{{ admin_url_prefix }}/add_tag" method="post" style="display: flex; gap: 1rem; margin-bottom: 2rem; align-items: flex-end;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group" style="flex-grow: 1; margin: 0;">
+                <label for="tag_name">New Tag Name</label>
+                <input type="text" id="tag_name" name="tag_name" placeholder="Enter new tag" required>
+            </div>
+            <button type="submit">Add Tag</button>
+        </form>
+
+        <h4>Available Tags</h4>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
+            {% for tag in available_tags %}
+            <div style="background-color: #e9e9ff; padding: 0.5rem 1rem; border-radius: 20px; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;">
+                <span>{{ tag }}</span>
+                <form action="/management/{{ admin_url_prefix }}/delete_tag" method="post" style="margin: 0; line-height: 1;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="tag_name" value="{{ tag }}">
+                    <button type="submit" style="background: none; border: none; color: #c53030; cursor: pointer; padding: 0; font-weight: bold; font-size: 1.2rem; line-height: 1;">&times;</button>
+                </form>
+            </div>
+            {% else %}
+            <p>No tags have been added yet.</p>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>User Management</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Details</th>
+                    <th>Permissions</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for managed_user in contributors %}
+                <tr>
+                    <form action="/management/{{ admin_url_prefix }}/update_user" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ managed_user.id }}">
+                        <td><input type="text" name="username" value="{{ managed_user.username }}"></td>
+                        <td>
+                            <p>Role: {{ managed_user.role }}</p>
+                            <p>Status: {% if managed_user.is_active %}<span class="status-active">Active</span>{% else %}<span class="status-suspended">Suspended</span>{% endif %}</p>
+                            <p>Last Login: {{ managed_user.last_login_time | default(value="Never") }}</p>
+                            <input type="password" name="password" placeholder="New Password (optional)">
+                        </td>
+                        <td class="permissions-list">
+                            <label><input type="checkbox" name="is_active" {% if managed_user.is_active %}checked{% endif %}> Account Active</label>
+                            <label><input type="checkbox" name="can_edit_and_delete_own_posts" {% if managed_user.can_edit_and_delete_own_posts %}checked{% endif %}> Can Edit/Delete Own Posts</label>
+                            <label><input type="checkbox" name="can_edit_any_post" {% if managed_user.can_edit_any_post %}checked{% endif %}> Can Edit Any Post</label>
+                            <label><input type="checkbox" name="can_delete_any_post" {% if managed_user.can_delete_any_post %}checked{% endif %}> Can Delete Any Post</label>
+                            <label><input type="checkbox" name="can_approve_posts" {% if managed_user.can_approve_posts %}checked{% endif %}> Can Approve Posts</label>
+                        </td>
+                        <td class="user-actions">
+                            <button type="submit">Save</button>
+                    </form>
+                    <form action="/management/{{ admin_url_prefix }}/delete_user" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="user_id" value="{{ managed_user.id }}">
+                        <button type="submit" class="button-danger" onclick="return confirm('Are you sure you want to permanently delete this user? This cannot be undone.')">Delete</button>
+                    </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="card">
+        <h2>Create New User</h2>
+        <form action="/management/{{ admin_url_prefix }}/create_user" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username" required>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label>Role</label>
+                <select name="role">
+                    <option value="contributor">Contributor</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <button type="submit">Create User</button>
+        </form>
+    </section>
+
+    <section class="admin-section">
+        <h2>Advanced Management</h2>
+        <p>Directly manage database tables. Use with extreme caution.</p>
+        <a href="/management/{{ admin_url_prefix }}/advanced-db-manager" class="button">Go to Advanced DB Manager</a>
+    </section>
+</main>
+{% endblock content %}

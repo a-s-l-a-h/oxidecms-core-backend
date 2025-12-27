@@ -1,0 +1,7 @@
+[web]
+host = "127.0.0.1"
+port = 8080
+
+[database]
+users_path = "../db/contributors/users.db" # Changed folder name
+posts_path = "../db/posts/posts.db"
