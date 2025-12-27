@@ -194,7 +194,23 @@ cargo run --bin appbase_server -- --env-file /home/user/projects/oxidecms-core-b
 cargo run --bin appbase_server -- --env-file C:/Users/YourUser/path/to/oxidecms-core-backend/.env
 ```
 
+**After starting the server, here is how to access the management panels:**
 
+The server will typically start on `http://127.0.0.1:8000`.
+
+*   **Administrator Login:**
+    The admin URL is constructed as: `server_address/management/ADMIN_URL_PREFIX/login`.
+    Based on the example `.env` file (`ADMIN_URL_PREFIX="secret-admin-area"`), your admin login page is:
+    ```
+    http://127.0.0.1:8000/management/secret-admin-area/login
+    ```
+
+*   **Contributor Login:**
+    The contributor URL is based on a prefix set in the database (which defaults to `contributors`). The URL structure is: `server_address/management/{contributor-prefix}/login`.
+    By default, the contributor login page is:
+    ```
+    http://127.0.0.1:8000/management/contributors/login
+    ```
 
 ## ⚙️ Command-Line Interface (CLI) Usage
 
