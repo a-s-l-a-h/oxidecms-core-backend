@@ -1,9 +1,23 @@
 
-# OxideCMS Core Backend
+<h1 align="center">OxideCMS Core Backend</h1>
+<div align="center">
+<strong>A robust, secure, and high-performance Rust backend for a modern blog and content publishing platform.</strong>
+</div>
+<br>
+<div align="center">
+<!--
+NOTE TO DEVELOPER:
+- Update the Rust version badge as you upgrade your toolchain.
+- Change "MIT" to your actual license if different.
+-->
+<img src="https://img.shields.io/badge/rust-1.78.0-orange?style=for-the-badge&logo=rust" alt="Rust Version">
+<img src="https://img.shields.io/badge/purpose-Blog%20Backend-blue?style=for-the-badge" alt="Purpose: Blog Backend">
+<a href="LICENSE">
+<img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License: MIT">
+</a>
+</div>
+This project provides the powerful backend engine for managing blog posts, contributors, and media for a content-driven website. It leverages the Actix Web framework for asynchronous performance and provides a clear separation of concerns between its public API and the secure content management dashboard.
 
-OxideCMS Core Backend is a robust, secure, and high-performance backend server for a content management system, written entirely in Rust. It leverages the Actix Web framework for asynchronous request handling and provides a clear separation of concerns between public content delivery and secure content management.
-
-This guide provides all the necessary steps for a developer to set up, build, configure, and run the application in both development and production environments.
 
 ## ✨ Features
 
